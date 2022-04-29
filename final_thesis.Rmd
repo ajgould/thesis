@@ -1,0 +1,1861 @@
+---
+title: "Quantifying the Effects of Topography on Forest Structure in a Temperate Coniferous Montane Forest"
+author: "Alex Gould"
+output:
+  html_document:
+    theme: yeti
+editor_options: 
+  chunk_output_type: console
+---
+# Libraries 
+```{r,  message=F, warning=F, results='hide'}
+library(moments)
+library(gvlma)
+library(raster)
+library(lmtest)
+library(car)
+library(leaps)
+library(tidyverse)
+library(leaflet)
+library(ggplot2)
+library(ggthemes)
+library(tidyr)
+library(broom)
+library(sp)
+library(sf)
+library(vegan)
+library(dplyr)
+library(spData)
+library(stats)
+library(evaluate)
+library(spatialEco)
+library(knitr)
+library(insol)
+library(tmap)
+library(geodiv)
+library(GmAMisc)
+library(viridis)
+library(rgdal)
+library(lidR)
+library(lattice)
+library(rasterVis)
+library(RColorBrewer)
+library(ggcorrplot)
+library(cowplot)
+library(googleway)
+library(ggrepel)
+library(ggspatial)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+knitr::opts_chunk$set(cache=TRUE, warning=FALSE, message=FALSE)  
+```
+
+# Read in Field Data
+```{r Field_Data}
+CanopyData <- read.csv("proj_data/CanopyData.csv")
+PlotData <- read.csv("proj_data/PlotData.csv")
+TreeData <- read.csv("proj_data/TreeData.csv")
+TreeHeightsandAge <-read.csv("proj_data/Plot_tree_stats.csv")
+DBHsAndDensity <-read.csv("proj_data/DBH_Density.csv") 
+```
+
+# Bighorn National Forest Shape File
+```{r Bighorn}
+
+nf <- read_sf("proj_data/S_USA.AdministrativeForest/S_USA.AdministrativeForest.shp") %>%
+  st_transform(.,crs=32613)
+st_crs(nf)
+
+bighorn <- dplyr::filter(nf,FORESTNAME=="Bighorn National Forest") 
+
+```
+
+# Load DEM Data
+```{r DEM_Data}
+
+DEM <- raster("proj_data/DEM.tif") 
+
+st_crs(DEM)
+```
+
+# Load in Wyoming Landuse Landcover Data
+```{r Landuse_Landcover}
+
+#Read in the LULC Raster 
+lulc=raster("proj_data/lulc.tif")
+
+# LULC Names 
+lulc_names =read_csv("proj_data/LULC.csv") %>%
+  dplyr::select(class=ECOLSYS_LU...2, ID=Value)
+
+# Convert to a Raster
+lulc=as.factor(lulc)
+
+# Update the RAT with a Left Join
+levels(lulc)=left_join(levels(lulc)[[1]],lulc_names)
+table(values(lulc))
+
+
+```
+
+## Rename, Summarize, and Group Data
+```{r Data_Manipulation}
+canopy <- CanopyData %>%
+  group_by(Plot_Number) %>%
+  dplyr::select(-Sunflecks) %>% 
+  summarise_if(is.numeric, list(mean = function(x) mean(x, na.rm = TRUE), 
+                                      sd = function(x) sd(x, na.rm = TRUE)))
+
+plots <- PlotData %>%
+ dplyr::group_by(Plot_Number) %>%
+ dplyr::summarize(lat=mean(Lat), lon=mean(Lon)) 
+
+trees<- TreeData %>%
+  summarize(Plot_Number, Tree_ID, Species_Scientific_Name, DBH, Aprox_Tree_Age) %>%
+   dplyr:: group_by(Plot_Number) 
+```
+
+## Table of Species by Plot
+```{r Species_X_Plot}
+
+tree1<-trees %>% 
+  dplyr::select(-Tree_ID, -DBH) %>% 
+  dplyr::group_by(Plot_Number,Species_Scientific_Name) %>% 
+  dplyr::summarise(count=n()) %>%
+  tidyr::spread(Species_Scientific_Name,count) %>% 
+  dplyr:: mutate_all(function(x) ifelse(is.na(x),0,x))
+
+treecounts <-table(trees$Species_Scientific_Name)
+view(tree1)
+view(treecounts)
+
+```
+
+### Species Occurence Throughout Plots
+This bar graph displays the total observations of each species across all plots. The *Pinus contorta* or Lodgepole Pine was observed the most frequently with more than 350 sightings. The *Pinus flexilis*, Limber Pine, and the *Pinus ponderosa*, the Ponderosa Pine each only had one sighting across the plots. 
+```{r, fig.width=6, fig.height=6}
+
+tree_counts_bargraph<-barplot(treecounts,
+        main= "Species Occurence Throughout Plots", 
+        horiz=TRUE, 
+        xlab="Occurence", 
+        ylab= "Species",
+        col = c("#DD8317", "#3A9B44", "#47ACC2", "#EACF4F", "#EA5F4f", "#DD1794","#FFC300"), 
+        names.arg=c("Juniperus occidentalis", "Picea engelmannii","Pinus contorta", "Pinus ponderosa", "Pinus flexilis", "Populus tremuloides", "Pseudotsuga menziesii"),
+        cex.names=0.2, legend=TRUE)
+```
+
+## Calculate the Diversity
+```{r Diversity}
+diversity=data.frame(Plot_Number=tree1$Plot_Number,div=diversity(tree1))
+
+```
+
+### Species Diversity
+This bar graph shows the diversity within each plot. Plot 2 high the highest diversity at 1.2366849, and plot 60 had the lowest diversity of 0.0836497. 
+```{r, fig.width=6, fig.height=3}
+spatial_div<-ggplot(data= diversity, mapping=aes(x=Plot_Number, y=div, fill=div))+
+  geom_bar(stat = "identity")+
+  scale_fill_viridis_c(option="turbo")+
+  labs(x = "Plot Number", y = "Diversity", title ="Species Diversity Across Plots")
+spatial_div
+
+```
+
+## Create a Merged Dataset
+```{r Merged}
+
+Merged <- merge(canopy, plots) %>%
+  merge(DBHsAndDensity)%>%
+ # merge(TreeHeightsandAge) %>%
+  merge(diversity) %>% 
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) %>%
+  st_transform(.,crs=st_crs(DEM))
+
+Merged_With_TreeHeightsandAge <- merge(canopy, plots) %>%
+  merge(TreeHeightsandAge) %>%
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) %>%
+  st_transform(.,crs=st_crs(DEM))
+#4326 would be fine 
+
+tree_coords <- merge(trees, plots)
+
+```
+
+## Calculate TPI, Slope angle, Slope aspect and Elevation
+```{r Topo}
+
+tpi10m <- raster("proj_data/tpi10m.tif")
+tpi100m <- raster("proj_data/tpi100m.tif")
+tpi1000m <- raster("proj_data/tpi1000m.tif")
+
+
+TRI <- raster("proj_data/TRI.tif")
+slope <- raster("proj_data/slope.tif")
+aspect <- raster("proj_data/aspect.tif")
+
+eastwest <- raster("proj_data/eastwest.tif")
+northsouth <- raster("proj_data/northsouth.tif")
+```
+
+## Create Landforms at 10 Meter Resolution
+```{r Landforms 10m}
+SD10m <- sd(tpi10m[],na.rm=T) 
+SD10m
+landform_sd10m <- reclassify(tpi10m, matrix(c(-Inf, -SD10m, 1,
+                                              -SD10m, -SD10m/2, 2,
+                                              -SD10m/2, 0, 3,
+                                              0, SD10m/2, 4,
+                                              SD10m/2, SD10m, 5,
+                                              SD10m, Inf, 6),
+                                            ncol = 3, byrow = T),
+                             right = T)
+
+# Turn it into categorical raster
+landform_sd10m <- as.factor(landform_sd10m) 
+
+rat_sd10m <- levels(landform_sd10m)[[1]]
+
+rat_sd10m[["landform_sd10m"]] <- c('Valley', 'Lower Slope', 
+                                   'Flat Area','Middle Slope', 
+                                   'Upper Slope', 'Ridge')
+
+levels(landform_sd10m) <- rat_sd10m
+
+
+# Plot the classification
+tpi10mplot <-rasterVis::levelplot(landform_sd10m, col.regions = rev(brewer.pal(6,'RdYlBu')),
+                       labels = rat_sd10m$landcover,
+                       main = "10M TPI Landform Classification",
+                       colorkey=list(labels=list(at=1:6, labels=rat_sd10m[["landform_sd10m"]])))
+
+tpi10mplot
+histtpi10m <-hist(tpi10m[])
+
+```
+
+## Create Landforms at 100 Meter Resolution
+```{r Landforms 100m}
+SD100m <- sd(tpi100m[],na.rm=T)
+SD100m 
+
+# Make Landform Classifications 
+#Morphologic class De Reu et al. 2013;  Weiss (2001)
+landform_sd100m <- reclassify(tpi100m, matrix(c(-Inf, -SD100m, 1,
+                                                -SD100m, -SD100m/2, 2,
+                                                -SD100m/2, 0, 3,
+                                                0, SD100m/2, 4,
+                                                SD100m/2, SD100m, 5,
+                                                SD100m, Inf, 6),
+                                              ncol = 3, byrow = T),
+                              right = T)
+
+# Turn it into categorical raster
+landform_sd100m <- as.factor(landform_sd100m) 
+
+rat_sd100m <- levels(landform_sd100m)[[1]]
+
+rat_sd100m[["landform_sd100m"]] <- c('Valley', 'Lower Slope', 
+                                     'Flat Area','Middle Slope', 
+                                     'Upper Slope', 'Ridge')
+
+levels(landform_sd100m) <- rat_sd100m
+#writeRaster(landform_sd100m, file="proj_data/landform_sd100m.grd", overwrite=TRUE)
+
+# Plot the classification
+tpi100mplot<- rasterVis::levelplot(landform_sd100m, col.regions = rev(brewer.pal(6,'RdYlBu')),
+                        labels = rat_sd100m$landcover,
+                        main = "100m TPI Landform Classification",
+                        colorkey=list(labels=list(at=1:6, labels=rat_sd100m[["landform_sd100m"]])))
+
+
+tpi100mplot
+histtpi100m <- histtpi100<-hist(tpi100m[])
+
+```
+
+## Create Landforms at 1000 Meter Resolution
+```{r Lanforms 1000m}
+SD1000m <- sd(tpi1000m[],na.rm=T)
+SD1000m 
+
+# Make landform classes
+#Morphologic class De Reu et al. 2013;  Weiss (2001)
+landform_sd1000m <- reclassify(tpi1000m, matrix(c(-Inf, -SD1000m, 1,
+                                                  -SD1000m, -SD1000m/2, 2,
+                                                  -SD1000m/2, 0, 3,
+                                                  0, SD1000m/2, 4,
+                                                  SD1000m/2, SD1000m, 5,
+                                                  SD1000m, Inf, 6),
+                                                ncol = 3, byrow = T),
+                               right = T)
+
+# Turn it into categorical raster
+landform_sd1000m <- as.factor(landform_sd1000m) 
+
+rat_sd1000m <- levels(landform_sd1000m)[[1]]
+
+rat_sd1000m[["landform_sd1000m"]] <- c('Valley', 'Lower Slope', 
+                                       'Flat Area','Middle Slope', 
+                                       'Upper Slope', 'Ridge')
+
+levels(landform_sd1000m) <- rat_sd1000m 
+#writeRaster(landform_sd1000m, file="proj_data/landform_sd1000m.grd", overwrite= TRUE) #tif wont work for as.factor 
+
+# Plot the classification
+tpi1000mplot<- levelplot(landform_sd1000m, col.regions = rev(brewer.pal(6,'RdYlBu')),
+                         labels = rat_sd1000m$landcover,
+                         main = "1000m TPI Landform Classification",
+                         colorkey=list(labels=list(at=1:6, labels=rat_sd1000m[["landform_sd1000m"]])))
+
+tpi1000mplot
+histtpi1000m<-hist(tpi1000m[])
+
+```
+
+## Stack All Topographic Variables
+```{r Stack_Topo}
+all_topo <- stack(DEM,
+              TRI,
+              slope, aspect, 
+              eastwest, northsouth,
+              tpi10m, tpi100m, tpi1000m)
+            
+plot(all_topo)
+```
+
+## Combine and Clean all Data at 10 Meter Resolution
+```{r 10m_Combining_and_Cleaning}
+
+envi <- raster::extract(all_topo, st_buffer(Merged, dist = 5, endCapStyle="SQUARE"),small=TRUE, fun=mean, file="proj_data/envi.tif", overwrite=TRUE
+                        ) %>%     
+  scale() #this makes the regression coefficients comparable 
+
+
+envi<-as.data.frame(envi)
+
+bind<- bind_cols(Merged,envi) 
+
+
+#LULC Introduction 
+envi2 <- raster::extract(lulc, st_buffer(Merged, dist = 5, endCapStyle="SQUARE"), small=TRUE, fun=mean, file="proj_data/envi2.tif", overwrite=TRUE
+                         ) %>%
+  as.data.frame() %>%
+  left_join(read_csv("proj_data/LULC.csv"), by=c("V1"="Value")) %>%
+  dplyr::select(lulc=V1, LULC_Name =ECOLSYS_LU...2)
+
+bighornData <- bind_cols(bind,as.data.frame(envi2)) %>%
+  mutate(lulc=as.factor(lulc)) %>%
+  mutate(lulc_reduced= as.factor(case_when(
+    lulc==149~149,
+    lulc==151~151,
+    lulc==155~155,
+    # lulc==~143~999,
+    # lulc==144~ 999,
+    # lulc==145~ 999,
+    # lulc==315~ 999,
+    # lulc==427~ 999,
+    # lulc==490~ 999,
+    # lulc==491~ 999,
+    # lulc==568~ 999,
+   TRUE~1,
+  )))
+#  dplyr::select(-"X")
+```
+
+## Not Scaled- For Individual Maps!
+```{r Environemnt not Scaled}
+enviNS <- raster::extract(all_topo, st_buffer(Merged, dist = 5, endCapStyle="SQUARE"),small=TRUE, fun=mean,  file="proj_data/enviNS.tif", overwrite=TRUE)
+
+enviNS<-as.data.frame(enviNS)
+
+bindNS<- bind_cols(Merged,enviNS) 
+
+treesandbindNS<- merge(trees, bindNS)
+
+#Add LULC
+envi2NS <- raster::extract(lulc, st_buffer(Merged, dist = 5, endCapStyle="SQUARE"), small=TRUE, fun=mean, file="proj_data/envi2NS.tif", overwrite=TRUE
+                         ) %>%
+  as.data.frame() %>%
+  left_join(read_csv("proj_data/LULC.csv"), by=c("V1"="Value")) %>%
+  dplyr::select(lulc=V1, LULC_Name =ECOLSYS_LU...2)
+
+bighornDataNS <- bind_cols(bindNS,as.data.frame(envi2NS)) %>%
+  mutate(lulc=as.factor(lulc)) %>%
+  mutate(lulc_reduced= as.factor(case_when(
+    lulc==149~149,
+    lulc==151~151,
+    lulc==155~155,
+    # lulc==~143~999,
+    # lulc==144~ 999,
+    # lulc==145~ 999,
+    # lulc==315~ 999,
+    # lulc==427~ 999,
+    # lulc==490~ 999,
+    # lulc==491~ 999,
+    # lulc==568~ 999,
+   TRUE~1,
+  )))
+  
+```
+
+## Tree Height Combine and Clean at 10 Meter Resolution
+```{r To_Get_Tree_Heights_Combining_and_Cleaning}
+enviTree <- raster::extract(all_topo, st_buffer(Merged_With_TreeHeightsandAge,
+                                                dist = 5, endCapStyle="SQUARE"),small=TRUE, fun=mean, 
+                            file="proj_data/enviTree.tif", overwrite=TRUE
+                            )  %>%   
+  scale() #this makes the regression coefficients comparable 
+enviTree<-as.data.frame(enviTree) #%>% 
+
+
+bindTree<- dplyr::bind_cols(Merged_With_TreeHeightsandAge,enviTree) %>%
+  dplyr::rename(Average_Stand_Age=Average_Stamd_Age)
+
+                
+
+# LULC
+envi2Tree <- raster::extract(lulc, st_buffer(Merged_With_TreeHeightsandAge, dist = 5, endCapStyle="SQUARE"), 
+                             small=TRUE, fun=mean,file="proj_data/envi2Tree.tif", overwrite=TRUE) %>%
+                              as.data.frame() %>%
+  left_join(read_csv("proj_data/LULC.csv"), by=c("V1"="Value")) %>%
+  dplyr::select(lulc=V1, LULC_Name =ECOLSYS_LU...2)
+
+bighornDataTreeHeightsAndAge <- bind_cols(bindTree,as.data.frame(envi2Tree)) %>%
+  mutate(lulc=as.factor(lulc)) %>%
+  dplyr::select(-"X") %>%
+  mutate(lulc_reduced= as.factor(case_when(
+    lulc==149~149,
+    lulc==151~151,
+    lulc==155~155,
+    TRUE~1,
+  )))
+```
+
+
+## Tree Height Not Scaled for Graphing
+```{r Not Scaled Tree_Heights_Combining_and_Cleaning}
+enviTreeNS <- raster::extract(all_topo, st_buffer(Merged_With_TreeHeightsandAge,
+                                                dist = 5, endCapStyle="SQUARE"),small=TRUE, fun=mean, 
+                            file="proj_data/enviTreeNS.tif", overwrite=TRUE
+                            )  
+
+enviTreeNS<-as.data.frame(enviTreeNS) 
+
+bindTreeNS<- dplyr::bind_cols(Merged_With_TreeHeightsandAge,enviTreeNS) %>%
+  dplyr::rename(Average_Stand_Age=Average_Stamd_Age)
+
+
+#LULC
+envi2TreeNS <- raster::extract(lulc, st_buffer(Merged_With_TreeHeightsandAge, dist = 5, endCapStyle="SQUARE"), small=TRUE, fun=mean,
+                               file="proj_data/envi2TreeNS.tif", overwrite=TRUE) %>%
+                              as.data.frame() %>%
+  left_join(read_csv("proj_data/LULC.csv"), by=c("V1"="Value")) %>%
+  dplyr::select(lulc=V1, LULC_Name =ECOLSYS_LU...2)
+
+NSbighornDataTreeHeightsAndAge <- bind_cols(bindTreeNS,as.data.frame(envi2TreeNS)) %>%
+  mutate(lulc=as.factor(lulc)) %>%
+  dplyr::select(-"X") %>%
+  mutate(lulc_reduced= as.factor(case_when(
+    lulc==149~149,
+    lulc==151~151,
+    lulc==155~155,
+    TRUE~1,
+  )))
+```
+
+## Forest Structure Correlations at 10 Meters
+```{r 10m_Correlations} 
+
+view(bighornData)
+
+cor_bighorn10m <- bighornData %>% data.frame() %>%
+  dplyr::select(
+#"Plot_Number"      ,
+"Gap_Fraction_mean",
+"Stand_Density",
+"Average_DBH",
+"DBH_Sd",
+"PAR_LAI_mean"     ,
+"PAR_Average_mean"  ,
+"Canopy_Density_mean",
+"Leaf_Angle_mean" ,
+"Gap_Fraction_sd",
+"PAR_LAI_sd"  ,
+    "PAR_Average_sd"    ,
+    "Canopy_Density_sd",
+    "Leaf_Angle_sd"   ,
+    "div",
+    "DEM"     ,
+    "TRI"          ,
+    "slope"        ,
+    "aspect"  ,
+    "eastwest"    ,
+    "northsouth"       ,
+    "tpi10m"          ,
+    "tpi100m"          ,
+    "tpi1000m"         , 
+  )  %>%
+  na.omit()
+
+my_cor10<-cor(cor_bighorn10m)
+view(my_cor10)
+my_pmat10<-cor_pmat(cor_bighorn10m)
+view(my_pmat10)
+ggcorrplot(corr = my_cor10, p.mat = my_pmat10)
+```
+
+## Forest Structure Regressions at 10 Meters
+```{r 10m_Regressions}
+#Gap Fraction mean
+#p-value: 2.378e-05
+GapFraction_mean_10m<-lm(Gap_Fraction_mean~ TRI+ tpi1000m+lulc_reduced,
+                         data=bighornData)
+summary(GapFraction_mean_10m)
+
+#Gap Fraction sd
+#p-value: 0.05405
+GapFraction_sd_10m<-lm(Gap_Fraction_sd~  DEM,
+                       data=bighornData)
+summary(GapFraction_sd_10m)
+
+
+#####################################################################################
+#PAR LAI mean
+#p-value: 0.1319
+PAR_LAI_mean_10m<-lm(PAR_LAI_mean~ DEM+tpi10m+lulc_reduced,
+                       data=bighornData)
+summary(PAR_LAI_mean_10m)
+
+
+#PAR LAI sd
+#0.02881
+PAR_LAI_sd_10m<-lm(PAR_LAI_sd~ eastwest,
+                   data=bighornData)
+summary(PAR_LAI_sd_10m)
+
+#####################################################################################
+#PAR Average mean
+#p-value: 0.008254
+PAR_Average_mean_10m<-lm(PAR_Average_mean~  lulc_reduced,
+                         data=bighornData)
+summary(PAR_Average_mean_10m)
+
+#PAR Average SD
+#p-value: 0.01623
+PAR_Average_sd10m<-lm(PAR_Average_sd~ TRI+slope+ northsouth,
+                   data=bighornData)
+summary(PAR_Average_sd10m)
+
+#####################################################################################
+#Canopy Density Mean 
+#p-value: 8.287e-06
+Canopy_Density_mean_10m<-lm(Canopy_Density_mean~  DEM+ lulc_reduced,
+                      data=bighornData)
+summary(Canopy_Density_mean_10m)
+
+
+#Canopy Density SD
+#5.175e-05
+Canopy_Density_sd_10m<-lm(Canopy_Density_sd~ DEM+tpi100m+ lulc_reduced,
+                            data=bighornData)
+summary(Canopy_Density_sd_10m)
+#
+####################################################################################
+#Leaf Angle mean
+#p-value: 0.5935
+Leaf_Angle_mean_10<-lm(Leaf_Angle_mean~ lulc_reduced,
+                          data=bighornData)
+summary(Leaf_Angle_mean_10)
+
+#Leaf Angle sd
+#p-value: 0.001394
+Leaf_Angle_sd_10<-lm(Leaf_Angle_sd~ tpi1000m+lulc_reduced,
+                       data=bighornData)
+summary(Leaf_Angle_sd_10)
+
+#####################################################################################
+#Diversity
+# p-value: 0.0009821
+Diversity_10m<-lm(div~DEM+northsouth+lulc_reduced,
+                     data=bighornData)
+summary(Diversity_10m) 
+
+#####################################################################################
+
+# Average DBH
+#p-value: 0.0009843
+DBH_mean_10m<-lm(Average_DBH~ tpi100m+ lulc_reduced,
+                  data=bighornData)
+summary(DBH_mean_10m) 
+
+#####################################################################################
+
+#SD DBH
+#p-value: 0.001216
+DBH_sd_10m<-lm(DBH_Sd~ tpi1000m+ lulc_reduced,
+                 data=bighornData)
+summary(DBH_sd_10m) 
+
+#####################################################################################
+#Stand Density
+#p-value: 1.806e-06
+Stand_Density_10m<-lm(Stand_Density~ DEM+ tpi100m+ lulc_reduced,
+               data=bighornData)
+summary(Stand_Density_10m) 
+#####################################################################################
+```
+
+## Tree Height Correlations at 10 Meeters
+```{r TreeHeightCorrs}
+cor_bighornTreeHeightsAndAge <-bighornDataTreeHeightsAndAge %>% 
+  data.frame() %>%
+  dplyr::select(
+"Mean_Tree_Height" ,
+  "Sd_Tree_Height",
+   "Max_Tree_Height",
+    "Min_Tree_Height",
+   "Average_Stand_Age",
+    #"div",
+    "DEM"     ,
+    "TRI"          ,
+    "slope"        ,
+    "aspect"  ,
+    "eastwest"    ,
+    "northsouth"       ,
+    "tpi10m"          ,
+    "tpi100m"          ,
+    "tpi1000m"         ,
+  ) %>% 
+
+  na.omit()
+
+my_corTrees<-cor(cor_bighornTreeHeightsAndAge)
+my_pmatTrees<-cor_pmat(cor_bighornTreeHeightsAndAge)
+ggcorrplot(corr = my_corTrees,p.mat = my_pmatTrees)
+```
+
+## Tree Height Regressions at 10 Meters
+```{r TreeHeightandStandAge_Regressions}
+#Mean Tree Height
+#p-value: 0.0199
+ Mean_Tree_Height10m<-lm(Mean_Tree_Height~northsouth+lulc_reduced,
+                     data=bighornDataTreeHeightsAndAge)
+summary(Mean_Tree_Height10m)
+
+###################################################################################
+#SD Tree Height
+#p-value: 0.006275
+SD_Tree_Height10m<-lm(Sd_Tree_Height~ tpi100m+lulc_reduced,
+                      data=bighornDataTreeHeightsAndAge)
+summary(SD_Tree_Height10m)
+
+##################################################################################
+#Max Tree Height (northsouth aspect)
+#p-value: 0.00969
+Max_Tree_Height10m<-lm(Max_Tree_Height~ aspect+ tpi1000m +lulc_reduced,
+                       data=bighornDataTreeHeightsAndAge)
+summary(Max_Tree_Height10m)
+
+##################################################################################
+#Average Stand Age 
+#p-value: 0.0001305
+Average_Stand_Age10m<-lm(Average_Stand_Age~aspect+ tpi1000m +lulc_reduced,
+                         data=bighornDataTreeHeightsAndAge)
+
+summary(Average_Stand_Age10m)
+```
+
+# Study Site Plots
+```{r Study Site Plots}
+
+# Interactive Map of All Plots 
+tmap::tmap_mode(mode='view')
+tm_shape(bindTree)+
+  tm_dots(col='black')
+
+
+#GGPlot of Study Site
+studysiteplots<-ggplot(plots)+
+  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Longitude", y ="Latitude",
+       title ="Study Site Plots", color ="Plot Number") + 
+  theme(plot.title = element_text(hjust = 0.5))
+studysiteplots
+
+#Isolate Interactive Lidar Plots 
+LidarplotsInt <-bindTree[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43, 51,57, 58,59, 65,66, 69),]
+
+#Interactive Map of Lidar Plots
+tmap::tmap_mode(mode='view')
+tm_shape(LidarplotsInt, )+
+  tm_dots(col='blue')
+
+#Isolate standard lidar study plots 
+Lidarplots <-plots[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43,
+                              51,57, 58,59, 65,66, 69),]
+
+#GGPlot of Lidar Plots 
+lidarplotsgg<-ggplot(Lidarplots)+
+  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number))+
+  scale_color_viridis_c(option="turbo")+
+       labs(x = "Longitude", y ="Latitude",
+       title ="Lidar Plots", color ="Plot Number") + 
+  theme(plot.title = element_text(hjust = 0.5))
+lidarplotsgg
+```
+ 
+## Plot of Land Use Land Cover
+```{r Land Use Land Cover Plots}
+lulc_colors=data.frame(class=levels(lulc)[[1]]$class)
+
+lulc_colors$col=c("#EBA998","#FFFB00", "#4080BF", "#989F60", "#AF5063", "#3200FF", "#A289A8", "#BE20DF", "#971452", "#6250AF" ,  "#8EB880", "#624074", "#A0B232", "#B232A0", "#FF00E8","#F1197C", "#7C2B4B", "#7C2B72", "#A0D092", "#D095DE", "#70808F", "#10D4EF", "#AF50A7", "#EF103D","#4F30CF", "#FFC300", "#BCFF00", "#00BBFF", "#2080DF", "#DF8E20", "#9A8A86", "#CF3050", "#708F75", "#8F708D", "#95BCDE",  "#8F8F70", "#FFCD00", "#EB98E1", "#543E6C", "#DFBA20", "#FF9300", "#00FF43", "#B25932", "#B2327F", "#543B1B", "#1B543B", "#1B3D54", "#805C73", "#B62B85", "#F119B2", "#F18E19", "#591AAF", "#E0FF00", "#E0FF90")
+
+lulcplot<-rasterVis::gplot(lulc)+
+  geom_raster(aes(fill=as.factor(value)))+
+  scale_fill_manual(labels=lulc_colors$class,
+                    values=lulc_colors$col,
+                    name="Landcover Type")+
+  coord_equal()+
+  theme(legend.position = "bottom", legend.key.size=unit(.5, "line"), legend.text=element_text(size=8))+
+  guides(fill=guide_legend(ncol=3,byrow=TRUE))
+
+lulcplot
+
+```
+
+# Regression Results
+```{r Regression Results}
+regression_results <-read.csv("proj_data/Regression_Results.csv")
+view(regression_results)
+
+
+#Gap Fraction Mean 
+par(mfrow=c(2,3))
+plot(GapFraction_mean_10m, 1:6)
+gvlma(GapFraction_mean_10m)
+# Coefficients:
+#     (Intercept)              TRI         tpi1000m  lulc_reduced149 lulc_reduced151  lulc_reduced155    
+#         1.11244          0.07958          0.08333          0.49340          0.60939          0.16545  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = GapFraction_mean_10m) 
+# 
+#                     Value p-value                   Decision
+# Global Stat        12.885 0.01185 Assumptions NOT satisfied!
+# Skewness            1.457 0.22742    Assumptions acceptable.
+# Kurtosis            1.715 0.19028    Assumptions acceptable.
+# Link Function       4.881 0.02716 Assumptions NOT satisfied!
+# Heteroscedasticity  4.832 0.02794 Assumptions NOT satisfied!
+
+#Gap Fraction SD
+par(mfrow=c(2,3))
+plot(GapFraction_sd_10m, 1:6)
+gvlma(GapFraction_sd_10m)
+# Coefficients:
+# (Intercept)          DEM  
+#     0.29241     -0.04431  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = GapFraction_sd_10m) 
+# 
+#                      Value   p-value                   Decision
+# Global Stat        75.8689 1.332e-15 Assumptions NOT satisfied!
+# Skewness           37.5201 9.047e-10 Assumptions NOT satisfied!
+# Kurtosis           36.6137 1.440e-09 Assumptions NOT satisfied!
+# Link Function       0.5129 4.739e-01    Assumptions acceptable.
+# Heteroscedasticity  1.2221 2.690e-01    Assumptions acceptable.
+
+
+#PAR LAI Mean
+par(mfrow=c(2,3))
+plot(PAR_LAI_mean_10m, 1:6)
+gvlma(PAR_LAI_mean_10m)
+
+# Call:
+# lm(formula = PAR_LAI_mean ~ DEM + tpi10m + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)              DEM           tpi10m  lulc_reduced149  lulc_reduced151  
+#          2.1971           0.3347           0.3052           0.4209           0.5008  
+# lulc_reduced155  
+#          1.3725  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = PAR_LAI_mean_10m) 
+# 
+#                      Value  p-value                   Decision
+# Global Stat        9.45006 0.050784    Assumptions acceptable.
+# Skewness           7.28542 0.006952 Assumptions NOT satisfied!
+# Kurtosis           1.12472 0.288904    Assumptions acceptable.
+# Link Function      1.01848 0.312880    Assumptions acceptable.
+# Heteroscedasticity 0.02143 0.883608    Assumptions acceptable.
+
+#PAR LAI SD
+par(mfrow=c(2,3))
+plot(PAR_LAI_sd_10m, 1:6)
+gvlma(PAR_LAI_sd_10m)
+
+# Call:
+# lm(formula = PAR_LAI_sd ~ eastwest, data = bighornData)
+# 
+# Coefficients:
+# (Intercept)     eastwest  
+#      0.6422      -0.1088  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = PAR_LAI_sd_10m) 
+# 
+#                      Value   p-value                   Decision
+# Global Stat        31.2255 2.754e-06 Assumptions NOT satisfied!
+# Skewness           15.6306 7.700e-05 Assumptions NOT satisfied!
+# Kurtosis           14.2828 1.573e-04 Assumptions NOT satisfied!
+# Link Function       0.7860 3.753e-01    Assumptions acceptable.
+# Heteroscedasticity  0.5261 4.683e-01    Assumptions acceptable.
+
+
+#PAR Average Mean
+par(mfrow=c(2,3))
+plot(PAR_Average_mean_10m, 1:6)
+gvlma(PAR_Average_mean_10m)
+# Call:
+# lm(formula = PAR_Average_mean ~ lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#           420.5           -227.9           -286.6           -219.4  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = PAR_Average_mean_10m) 
+# 
+#                        Value   p-value                   Decision
+# Global Stat        4.265e+01 1.222e-08 Assumptions NOT satisfied!
+# Skewness           1.811e+01 2.089e-05 Assumptions NOT satisfied!
+# Kurtosis           1.321e+01 2.779e-04 Assumptions NOT satisfied!
+# Link Function      1.853e-14 1.000e+00    Assumptions acceptable.
+# Heteroscedasticity 1.133e+01 7.623e-04 Assumptions NOT satisfied!
+
+#PAR Average SD
+par(mfrow=c(2,3))
+plot(PAR_Average_sd10m, 1:6)
+gvlma(PAR_Average_sd10m)
+# Call:
+# lm(formula = PAR_Average_sd ~ TRI + slope + northsouth, data = bighornData)
+# 
+# Coefficients:
+# (Intercept)          TRI        slope   northsouth  
+#      160.80       129.52      -163.04       -45.35  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = PAR_Average_sd10m) 
+# 
+#                      Value   p-value                   Decision
+# Global Stat        19.3889 0.0006590 Assumptions NOT satisfied!
+# Skewness           12.4021 0.0004289 Assumptions NOT satisfied!
+# Kurtosis            0.2763 0.5991333    Assumptions acceptable.
+# Link Function       2.4977 0.1140115    Assumptions acceptable.
+# Heteroscedasticity  4.2128 0.0401191 Assumptions NOT satisfied!
+
+
+#Canopy Density Mean
+par(mfrow=c(2,3))
+plot(Canopy_Density_mean_10m, 1:6)
+gvlma(Canopy_Density_mean_10m)
+# Call:
+# lm(formula = Canopy_Density_mean ~ DEM + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)              DEM  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#          55.305            3.612           14.206           12.912            8.106  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Canopy_Density_mean_10m) 
+# 
+#                     Value   p-value                   Decision
+# Global Stat        87.465 0.000e+00 Assumptions NOT satisfied!
+# Skewness           23.079 1.555e-06 Assumptions NOT satisfied!
+# Kurtosis           51.359 7.694e-13 Assumptions NOT satisfied!
+# Link Function       4.812 2.826e-02 Assumptions NOT satisfied!
+# Heteroscedasticity  8.216 4.153e-03 Assumptions NOT satisfied!
+
+
+#Canopy Density SD
+par(mfrow=c(2,3))
+plot(Canopy_Density_sd_10m, 1:6)
+gvlma(Canopy_Density_sd_10m)
+# Call:
+# lm(formula = Canopy_Density_sd ~ DEM + tpi100m + lulc_reduced, 
+#     data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)              DEM          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155
+#           9.957           -1.315           -1.751           -5.237           -5.537     -4.499  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Canopy_Density_sd_10m) 
+# 
+#                     Value   p-value                   Decision
+# Global Stat        47.876 1.002e-09 Assumptions NOT satisfied!
+# Skewness           20.297 6.629e-06 Assumptions NOT satisfied!
+# Kurtosis            8.033 4.594e-03 Assumptions NOT satisfied!
+# Link Function       3.087 7.890e-02    Assumptions acceptable.
+# Heteroscedasticity 16.459 4.972e-05 Assumptions NOT satisfied!
+
+
+#Leaf Angle Mean
+par(mfrow=c(2,3))
+plot(Leaf_Angle_mean_10, 1:6)
+gvlma(Leaf_Angle_mean_10)
+# Call:
+# lm(formula = Leaf_Angle_mean ~ lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#          48.727            5.660            1.049            1.311  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Leaf_Angle_mean_10) 
+# 
+#                        Value p-value                Decision
+# Global Stat        6.230e+00  0.1826 Assumptions acceptable.
+# Skewness           2.686e+00  0.1012 Assumptions acceptable.
+# Kurtosis           1.936e+00  0.1641 Assumptions acceptable.
+# Link Function      5.268e-13  1.0000 Assumptions acceptable.
+# Heteroscedasticity 1.608e+00  0.2048 Assumptions acceptable.
+
+#Leaf Angle SD
+par(mfrow=c(2,3))
+plot(Leaf_Angle_sd_10, 1:6)
+gvlma(Leaf_Angle_sd_10)
+# Call:
+# lm(formula = Leaf_Angle_sd ~ tpi1000m + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)         tpi1000m  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#         24.7175          -4.1758          -6.5279          -0.9586          -3.1830  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Leaf_Angle_sd_10) 
+# 
+#                      Value p-value                Decision
+# Global Stat        4.89145  0.2986 Assumptions acceptable.
+# Skewness           0.48586  0.4858 Assumptions acceptable.
+# Kurtosis           0.71337  0.3983 Assumptions acceptable.
+# Link Function      3.67004  0.0554 Assumptions acceptable.
+# Heteroscedasticity 0.02219  0.8816 Assumptions acceptable
+
+#Diversity
+par(mfrow=c(2,3))
+plot(Diversity_10m, 1:6)
+gvlma(Diversity_10m)
+# Call:
+# lm(formula = div ~ DEM + northsouth + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)              DEM       northsouth  lulc_reduced149  lulc_reduced151  
+#         0.38439          0.09229         -0.04444          0.16987          0.03923  
+# lulc_reduced155  
+#         0.15174  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Diversity_10m) 
+# 
+#                      Value  p-value                   Decision
+# Global Stat        17.0809 0.001864 Assumptions NOT satisfied!
+# Skewness            6.2070 0.012725 Assumptions NOT satisfied!
+# Kurtosis            5.4838 0.019194 Assumptions NOT satisfied!
+# Link Function       0.8535 0.355558    Assumptions acceptable.
+# Heteroscedasticity  4.5366 0.033178 Assumptions NOT satisfied!
+
+#DBH Mean
+par(mfrow=c(2,3))
+plot(DBH_mean_10m, 1:6)
+gvlma(DBH_mean_10m)
+
+# Call:
+# lm(formula = Average_DBH ~ tpi100m + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#          31.139           -2.986           -6.592            3.400           -6.044  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = DBH_mean_10m) 
+# 
+#                     Value   p-value                   Decision
+# Global Stat        22.860 0.0001351 Assumptions NOT satisfied!
+# Skewness           10.835 0.0009959 Assumptions NOT satisfied!
+# Kurtosis            8.499 0.0035529 Assumptions NOT satisfied!
+# Link Function       1.769 0.1835180    Assumptions acceptable.
+# Heteroscedasticity  1.757 0.1850515    Assumptions acceptable.
+
+#DBH SD
+par(mfrow=c(2,3))
+plot(DBH_sd_10m, 1:6)
+gvlma(DBH_sd_10m)
+# Call:
+# lm(formula = DBH_Sd ~ tpi1000m + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)         tpi1000m  lulc_reduced149  lulc_reduced151  lulc_reduced155  
+#          7.3101          -1.2644           0.5346           7.8764          -0.8562  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = DBH_sd_10m) 
+# 
+#                      Value   p-value                   Decision
+# Global Stat        23.8961 0.0000838 Assumptions NOT satisfied!
+# Skewness            8.9941 0.0027085 Assumptions NOT satisfied!
+# Kurtosis           10.2727 0.0013502 Assumptions NOT satisfied!
+# Link Function       3.9400 0.0471502 Assumptions NOT satisfied!
+# Heteroscedasticity  0.6893 0.4064005    Assumptions acceptable.
+
+#Stand Density
+par(mfrow=c(2,3))
+plot(Stand_Density_10m, 1:6)
+gvlma(Stand_Density_10m)
+# Call:
+# lm(formula = Stand_Density ~ DEM + tpi100m + lulc_reduced, data = bighornData)
+# 
+# Coefficients:
+#     (Intercept)              DEM          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155 
+#          6.0015           1.2977           1.3722           3.0350          -0.2019   1.5211  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Stand_Density_10m) 
+# 
+#                     Value p-value                Decision
+# Global Stat        8.1492 0.08626 Assumptions acceptable.
+# Skewness           2.6182 0.10564 Assumptions acceptable.
+# Kurtosis           1.3827 0.23964 Assumptions acceptable.
+# Link Function      3.3454 0.06739 Assumptions acceptable.
+# Heteroscedasticity 0.8029 0.37023 Assumptions acceptable.
+
+
+# Tree Height Mean
+par(mfrow=c(2,3))
+plot(Mean_Tree_Height10m, 1:6)
+gvlma(Mean_Tree_Height10m)
+# Call:
+# lm(formula = Mean_Tree_Height ~ northsouth + lulc_reduced, data = bighornDataTreeHeightsAndAge)
+# 
+# Coefficients:
+#     (Intercept)       northsouth  lulc_reduced149  lulc_reduced151  lulc_reduced155 
+#          7.3446          -0.8025           5.3506           5.5459          6.9510   
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Mean_Tree_Height10m) 
+# 
+#                       Value p-value                Decision
+# Global Stat        1.052881  0.9017 Assumptions acceptable.
+# Skewness           0.997379  0.3179 Assumptions acceptable.
+# Kurtosis           0.036870  0.8477 Assumptions acceptable.
+# Link Function      0.005801  0.9393 Assumptions acceptable.
+# Heteroscedasticity 0.012832  0.9098 Assumptions acceptable.
+
+# Tree Height SD
+par(mfrow=c(2,3))
+plot(SD_Tree_Height10m, 1:6)
+gvlma(SD_Tree_Height10m)
+# Call:
+# lm(formula = Sd_Tree_Height ~ tpi100m + lulc_reduced, data = bighornDataTreeHeightsAndAge)
+# 
+# Coefficients:
+#     (Intercept)          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155
+#          5.0266          -0.8031          -1.0080           0.7790    -0.8551  
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = SD_Tree_Height10m) 
+# 
+#                     Value p-value                   Decision
+# Global Stat        4.9753 0.28984    Assumptions acceptable.
+# Skewness           3.9299 0.04744 Assumptions NOT satisfied!
+# Kurtosis           0.3955 0.52942    Assumptions acceptable.
+# Link Function      0.3909 0.53182    Assumptions acceptable.
+# Heteroscedasticity 0.2590 0.61080    Assumptions acceptable.
+
+#Max Tree Height 
+par(mfrow=c(2,3))
+plot(Max_Tree_Height10m, 1:6)
+gvlma(Max_Tree_Height10m)
+# Call:
+# lm(formula = Max_Tree_Height ~ aspect + tpi1000m + lulc_reduced, 
+#     data = bighornDataTreeHeightsAndAge)
+# 
+# Coefficients:
+#     (Intercept)           aspect         tpi1000m  lulc_reduced149    lulc_reduced151  lulc_reduced155 
+#         15.8762           0.8112          -1.1283           2.3294     5.5133           6.5971 
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Max_Tree_Height10m) 
+# 
+#                      Value p-value                Decision
+# Global Stat        4.26114 0.37182 Assumptions acceptable.
+# Skewness           0.46840 0.49372 Assumptions acceptable.
+# Kurtosis           0.85119 0.35622 Assumptions acceptable.
+# Link Function      2.91962 0.08751 Assumptions acceptable.
+# Heteroscedasticity 0.02193 0.88228 Assumptions acceptable.
+
+#Average Stand Age
+par(mfrow=c(2,3))
+plot(Average_Stand_Age10m, 1:6)
+gvlma(Average_Stand_Age10m)
+# Call:
+# lm(formula = Average_Stand_Age ~ aspect + tpi1000m + lulc_reduced, 
+#     data = bighornDataTreeHeightsAndAge)
+# 
+# Coefficients:
+#     (Intercept)           aspect         tpi1000m  lulc_reduced149  lulc_reduced151  lulc_reduced155 
+#          74.491            5.211           -6.481          -19.671         l1.676          -18.959     
+# 
+# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
+# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
+# Level of Significance =  0.05 
+# 
+# Call:
+#  gvlma(x = Average_Stand_Age10m) 
+# 
+#                      Value  p-value                   Decision
+# Global Stat        15.3846 0.003966 Assumptions NOT satisfied!
+# Skewness            4.6874 0.030385 Assumptions NOT satisfied!
+# Kurtosis            1.2152 0.270299    Assumptions acceptable.
+# Link Function       0.8314 0.361869    Assumptions acceptable.
+# Heteroscedasticity  8.6506 0.003270 Assumptions NOT satisfied!
+
+```
+
+### Gap Fraction Plots
+```{r Gap Fraction Plots}
+#GapFraction_mean_10m<-lm(Gap_Fraction_mean~ TRI+ tpi1000m+lulc_reduced,data=bighornData)
+GF.TRI<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=TRI, y=Gap_Fraction_mean, color=Gap_Fraction_mean)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Topographic Roughness Index", y ="Gap Fraction Mean",
+       title ="Gap Fraction Mean vs Topographic Roughness IndexI", color ="Gap Fraction Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+GF.TRI
+
+GF.100TPI<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi100m, y=Gap_Fraction_mean, color=Gap_Fraction_mean)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "100m TPI", y ="Gap Fraction Mean",
+       title ="Gap Fraction Mean vs 100m TPI", color ="Gap Fraction Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+GF.100TPI
+
+GF.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Gap_Fraction_mean, color=Gap_Fraction_mean)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Landcover Type", y ="Gap Fraction Mean",
+       title ="Gap Fraction Mean vs Landcover Type", color ="Gap Fraction Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+GF.LULC
+
+Gap_Fraction_mean_Car<-car::avPlots(model = GapFraction_mean_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=TRUE,
+             main=("Gap Fraction Added-Variable Plots")) 
+
+
+#GapFraction_sd_10m<-lm(Gap_Fraction_sd~  DEM, data=bighornData)
+GFsd.DEM<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=Gap_Fraction_sd, color=Gap_Fraction_sd)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Elevation", y ="Gap Fraction Sd",
+       title ="Gap Fraction Sd vs Elevation", color ="Gap Fraction Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+GFsd.DEM
+
+Gap_Fraction_sd_Car<-car::avPlots(model = GapFraction_sd_10m, 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Gap Fraction Added-Variable Plot")) 
+
+             
+```
+
+## PAR LAI Plots
+```{r PAR LAI Plots}
+#PAR LAI mean
+#p-value: 0.1319
+#PAR_LAI_mean_10m<-lm(PAR_LAI_mean~ DEM+tpi10m+lulc_reduced,data=bighornData)
+
+PARLAI.DEM<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=PAR_LAI_mean, color=PAR_LAI_mean)) +
+  scale_color_viridis_c(option="viridis")+
+  labs(x = "Elevation", y ="PAR Leaf Area Index Mean",
+       title ="PAR Leaf Area Index Mean vs Elevation", color ="PAR LAI Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARLAI.DEM
+
+PARLAI.TPI10<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi10m, y=PAR_LAI_mean, color=PAR_LAI_mean)) +
+  scale_color_viridis_c(option="viridis")+
+  labs(x = "10m TPI", y ="PAR Leaf Area Index Mean",
+       title ="PAR Leaf Area Index Mean vs 10m TPI", color ="PAR LAI Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARLAI.TPI10
+
+PARLAI.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=PAR_LAI_mean, color=PAR_LAI_mean)) +
+  scale_color_viridis_c(option="viridis")+
+  labs(x = "Landcover Type", y ="PAR Leaf Area Index Mean",
+       title ="PAR Leaf Area Index Mean vs Landcover Type", color ="PAR LAI Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARLAI.LULC
+
+PAR_LAI_CAR<-car::avPlots(model = PAR_LAI_mean_10m, 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=TRUE,
+             main=("PAR LAI Added-Variable Plots")) 
+
+
+
+#PAR LAI sd
+#p-value: 0.02881
+#PAR_LAI_sd_10m<-lm(PAR_LAI_sd~ eastwest, data=bighornData)
+PARLAIsd.EW<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=eastwest, y=PAR_LAI_sd, color=PAR_LAI_sd)) +
+  scale_color_viridis_c(option="viridis")+
+  labs(x = "East-West Aspect", y ="PAR Leaf Area Index Sd",
+       title ="PAR Leaf Area Index Sd vs East-West Aspect", color ="PAR LAI Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARLAIsd.EW
+
+PAR_LAI.sd_CAR<-car::avPlots(model = PAR_LAI_sd_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("PAR LAI Added-Variable Plot")) 
+
+
+
+```
+
+## PAR Average Plots
+```{r PAR Average Plots}
+#PAR Average mean
+#p-value: 0.008254
+#PAR_Average_mean_10m<-lm(PAR_Average_mean~  lulc_reduced,data=bighornData)
+
+PARAvg.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=PAR_Average_mean, color=PAR_Average_mean)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Landcover Type", y ="PAR Average Mean",
+       title ="PAR Average Mean vs Landcover Type", color ="PAR Average Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARAvg.LULC
+
+PAR_Avg_CAR<-car::avPlots(model = PAR_Average_mean_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("PAR Average mean Added-Variable Plots")) 
+
+#PAR Average SD
+#p-value: 0.01623
+#PAR_Average_sd10m<-lm(PAR_Average_sd~ TRI+slope+ northsouth,data=bighornData)
+PARAvg.sd.TRI<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=TRI, y=PAR_Average_sd, color=PAR_Average_sd)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Topographic Roughness Index", y ="PAR Average Sd",
+       title ="PAR Average Sd vs Topographic Roughness Index", color ="PAR Average Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARAvg.sd.TRI
+
+PARAvg.sd.slope<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=slope, y=PAR_Average_sd, color=PAR_Average_sd)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Slope Anlge", y ="PAR Average Sd",
+       title ="PAR Average Sd vs Slope Angle", color ="PAR Average Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARAvg.sd.slope
+
+PARAvg.sd.NS<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=northsouth, y=PAR_Average_sd, color=PAR_Average_sd)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "North-South Aspect", y ="PAR Average Sd",
+       title ="PAR Average Sd vs North-South Aspect", color ="PAR Average Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+PARAvg.sd.NS
+
+PARAvg_Car<-car::avPlots(model = PAR_Average_sd10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("PAR Average sd Added-Variable Plots")) 
+
+```
+
+## Canopy Density Plots
+```{r Canopy Density Plots}
+#Canopy Density Mean 
+#p-value: 8.287e-06
+#Canopy_Density_mean_10m<-lm(Canopy_Density_mean~  DEM+ lulc_reduced,data=bighornData)
+
+CD.DEM <-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=Canopy_Density_mean, color=Canopy_Density_mean)) +
+  scale_color_viridis_c(option="rocket")+
+  labs(x = "Elevation", y ="Canopy Density Mean",
+       title ="Canopy Density Mean vs Elevation", color ="Canopy Density Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+CD.DEM 
+
+CD.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Canopy_Density_mean, color=Canopy_Density_mean)) +
+  scale_color_viridis_c(option="rocket")+
+  labs(x = "Landcover Types", y ="Canopy Density Mean",
+       title ="Canopy Density Mean vs Landcover Types", color ="Canopy Density Mean") + 
+  theme(plot.title = element_text(hjust = 0.5))
+CD.LULC
+
+CD_CAR<-car::avPlots(model = Canopy_Density_mean_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Canopy Density mean Added-Variable Plots")) 
+
+
+#Canopy Density SD
+#5.175e-05
+#Canopy_Density_sd_10m<-lm(Canopy_Density_sd~ DEM+tpi100m+ lulc_reduced, data=bighornData)
+CDs.DEM <-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=Canopy_Density_sd, color=Canopy_Density_sd)) +
+  scale_color_viridis_c(option="rocket")+
+  labs(x = "Elevation", y ="Canopy Density Sd",
+       title ="Canopy Density Sd vs Elevation", color ="Canopy Density Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+CDs.DEM 
+
+CDs.TPI100<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi100m, y=Canopy_Density_sd, color=Canopy_Density_sd)) +
+  scale_color_viridis_c(option="rocket")+
+  labs(x = "100m TPI", y ="Canopy Density Sd",
+       title ="Canopy Density Sd vs 100m TPI", color ="Canopy Density Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+CDs.TPI100
+
+CDs.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Canopy_Density_sd, color=Canopy_Density_sd)) +
+  scale_color_viridis_c(option="rocket")+
+  labs(x = "Landcover Types", y ="Canopy Density Sd",
+       title ="Canopy Density Sd vs Landcover Types", color ="Canopy Density Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+CDs.LULC
+
+CDs_CAR<-car::avPlots(model = Canopy_Density_sd_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Canopy Density sd Added-Variable Plots")) 
+
+```
+
+## Leaf Angle Plots 
+```{r Leaf Angle Plots}
+#Leaf Angle mean
+#p-value: 0.5935
+#Leaf_Angle_mean_10<-lm(Leaf_Angle_mean~ lulc_reduced, data=bighornData)
+
+LA.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Leaf_Angle_mean, color=Leaf_Angle_mean)) +
+  scale_color_viridis_c(option="plasma")+
+  labs(x = "Landcover Types", y ="Leaf Angle Mean",
+       title ="Leaf Angle Mean vs Landcover Types", color ="Leaf Angle Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+LA.LULC
+
+LA_CAR<-car::avPlots(model = Leaf_Angle_mean_10, 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Leaf Angle mean Added-Variable Plots")) 
+
+
+#Leaf Angle sd
+#p-value: 0.001394
+#Leaf_Angle_sd_10<-lm(Leaf_Angle_sd~ tpi1000m+lulc_reduced,data=bighornData)
+LAs.TPI1000<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi1000m, y=Leaf_Angle_sd, color=Leaf_Angle_sd)) +
+  scale_color_viridis_c(option="plasma")+
+  labs(x = "1000m TPI", y ="Leaf Angle Sd",
+       title ="Leaf Angle Sd vs 1000m TPI", color ="Leaf Angle Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+LAs.TPI1000
+
+LAs.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Leaf_Angle_sd, color=Leaf_Angle_sd)) +
+  scale_color_viridis_c(option="plasma")+
+  labs(x = "Land Cover Types", y ="Leaf Angle Sd",
+       title ="Leaf Angle Sd vs Land Cover Types", color ="Leaf Angle Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+LAs.LULC
+
+LA.sd_CAR<-car::avPlots(model = Leaf_Angle_sd_10, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Leaf Angle sd Added-Variable Plots")) 
+```
+
+## Diversity Plots 
+```{r Diversity Plots}
+#Diversity
+# p-value: 0.0009821
+#Diversity_10m<-lm(div~DEM+northsouth+lulc_reduced, data=bighornData)
+
+div.DEM<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=div, color=div)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Elevation", y ="Diversity",
+       title ="Diversity vs Elevation", color ="Diversity") + 
+  theme(plot.title = element_text(hjust = 0.5))
+div.DEM
+
+div.NS<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=northsouth, y=div, color=div)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "North-South Aspect", y ="Diversity",
+       title ="Diversity vs North-South Aspect", color ="Diversity") + 
+  theme(plot.title = element_text(hjust = 0.5))
+div.NS
+
+div.lulc<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=div, color=div)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Landcover Types", y ="Diversity",
+       title ="Diversity vs Landcover Types", color ="Diversity") + 
+  theme(plot.title = element_text(hjust = 0.5))
+div.lulc
+
+div_Car<-car::avPlots(model = Diversity_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Diversity Added-Variable Plots")) 
+```
+
+## DBH Plots 
+```{r DBH Plots}
+# Average DBH
+#p-value: 0.0009843
+#DBH_mean_10m<-lm(Average_DBH~ tpi100m+ lulc_reduced,data=bighornData)
+DBH_Avg.TPI100<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi100m, y=Average_DBH, color=Average_DBH)) +
+  scale_color_viridis_c(option="cividis")+
+  labs(x = "100m TPI", y ="Average DBH",
+       title ="Average Diameter Breast Height vs 100m TPI", color ="Average DBH") + 
+  theme(plot.title = element_text(hjust = 0.5))
+DBH_Avg.TPI100
+
+DBH_Avg.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Average_DBH, color=Average_DBH)) +
+  scale_color_viridis_c(option="cividis")+
+  labs(x = "Landcover Types", y ="Average DBH",
+       title ="Average Diameter Breast Height vs Landcover Types", color ="Average DBH") + 
+  theme(plot.title = element_text(hjust = 0.5))
+DBH_Avg.LULC
+
+DBH_Avg_CAR<-car::avPlots(model = DBH_mean_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("DBH mean Added-Variable Plots")) 
+
+#SD DBH
+#p-value: 0.001216
+#DBH_sd_10m<-lm(DBH_Sd~ tpi1000m+ lulc_reduced, data=bighornData)
+dbh.sd.tpi1000<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi1000m, y=DBH_Sd, color=DBH_Sd)) +
+  scale_color_viridis_c(option="cividis")+
+  labs(x = "1000m TPI", y ="DBH Sd",
+       title ="Sd of Diameter Breast Height vs 1000m TPI", color ="DBH Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+dbh.sd.tpi1000
+
+dbh.sd.LULC<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=DBH_Sd, color=DBH_Sd)) +
+  scale_color_viridis_c(option="cividis")+
+  labs(x = "Land Cover Types", y ="DBH Sd",
+       title ="Sd of Diameter Breast Height vs Land Cover Types", color ="DBH Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+dbh.sd.LULC
+
+dbh.sd.CAR<-car::avPlots(model = DBH_sd_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("DBH sd Added-Variable Plots")) 
+
+```
+
+## Stand Density Plots 
+```{r Stand Density Plots}
+#Stand Density
+#p-value: 1.806e-06
+#Stand_Density_10m<-lm(Stand_Density~ DEM+ tpi100m+ lulc_reduced, data=bighornData)
+
+den.dem<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=DEM, y=Stand_Density, color=Stand_Density)) +
+  scale_color_viridis_c(option="mako")+
+  labs(x = "Elevation", y ="Stand Density",
+       title ="Stand Density vs Elevation", color ="Stand Density") + 
+  theme(plot.title = element_text(hjust = 0.5))
+den.dem
+
+den.tpi100<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=tpi100m, y=Stand_Density, color=Stand_Density)) +
+  scale_color_viridis_c(option="mako")+
+  labs(x = "100m TPI", y ="Stand Density",
+       title ="Average Tree Height vs 100m TPI", color ="Stand Density") + 
+  theme(plot.title = element_text(hjust = 0.5))
+den.tpi100
+
+den.lulc<-ggplot(bighornDataNS)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Stand_Density, color=Stand_Density)) +
+  scale_color_viridis_c(option="mako")+
+  labs(x = "Landcover Types", y ="Stand Density",
+       title ="Stand Density vs Landcover Types", color ="Stand Density") + 
+  theme(plot.title = element_text(hjust = 0.5))
+den.lulc
+
+den.car<-car::avPlots(model = Stand_Density_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Stand Density Added-Variable Plots")) 
+
+```
+
+## Tree Height Plots 
+```{r Tree Height Plots}
+#Mean Tree Height
+#p-value: 0.0199
+#Mean_Tree_Height10m<-lm(Mean_Tree_Height~northsouth+lulc_reduced, data=bighornDataTreeHeightsAndAge)
+
+avgTH.NS<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=northsouth, y=Mean_Tree_Height, color=Mean_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "North-South Aspect", y ="Average Tree Height",
+       title ="Average Tree Height vs North-South Aspect", color ="Average Tree Height") + 
+  theme(plot.title = element_text(hjust = 0.5))
+avgTH.NS
+
+avgTH.LULC<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Mean_Tree_Height, color=Mean_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Land Cover Types", y ="Average Tree Height",
+       title ="Average Tree Height vs Land Cover Types", color ="Average Tree Height") + 
+  theme(plot.title = element_text(hjust = 0.5))
+avgTH.LULC
+
+avgTH.CAR<-car::avPlots(model = Mean_Tree_Height10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Average Tree Height Added-Variable Plots")) 
+
+
+#SD Tree Height
+#p-value: 0.006275
+#SD_Tree_Height10m<-lm(Sd_Tree_Height~ tpi100m+lulc_reduced,  data=bighornDataTreeHeightsAndAge)
+
+sd.th.tpi100<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=tpi100m, y=Sd_Tree_Height, color=Sd_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "100m TPI", y ="Tree Height Sd",
+       title ="Tree Height Sd vs 100m TPI", color ="Tree Height Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+sd.th.tpi100
+
+sd.th.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Sd_Tree_Height, color=Sd_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Land Cover Types", y ="Tree Height Sd",
+       title ="Tree Height Sd vs Aspect", color ="Tree Height Sd") + 
+  theme(plot.title = element_text(hjust = 0.5))
+sd.th.lulc
+
+sd.thCAR<-car::avPlots(model = SD_Tree_Height10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Tree Height sd Added-Variable Plots")) 
+
+#Max Tree Height (northsouth aspect)
+#p-value: 0.00969
+#Max_Tree_Height10m<-lm(Max_Tree_Height~ aspect+ tpi1000m+lulc_reduced,data=bighornDataTreeHeightsAndAge)
+max.th.aspect<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=aspect, y=Max_Tree_Height, color=Max_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Aspect", y ="Max Tree Height",
+       title ="Maximum Tree Heights vs Aspect", color ="Maximum Tree Height") + 
+  theme(plot.title = element_text(hjust = 0.5))
+max.th.aspect
+
+max.th.tpi1000<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=tpi1000m, y=Max_Tree_Height, color=Max_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "1000m TPI", y ="Max Tree Height",
+       title ="Maximum Tree Heights vs 1000m TPI", color ="Maximum Tree Height") + 
+  theme(plot.title = element_text(hjust = 0.5))
+max.th.tpi1000
+
+max.th.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Max_Tree_Height, color=Max_Tree_Height)) +
+  scale_color_viridis_c(option="magma")+
+  labs(x = "Landcover Types", y ="Max Tree Height",
+       title ="Maximum Tree Heights vs Landcover Type", color ="Maximum Tree Height") + 
+  theme(plot.title = element_text(hjust = 0.5))
+max.th.lulc
+
+max.th.CAR<-car::avPlots(model = Max_Tree_Height10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Maximum Tree Height Added-Variable Plots")) 
+```
+
+## Stand Age Plots
+```{r Estimated Stand Age}
+#Average Stand Age 
+#p-value: 0.0001305
+#Average_Stand_Age10m<-lm(Average_Stand_Age~aspect+ tpi1000m +lulc_reduced,  data=bighornDataTreeHeightsAndAge)
+avg.sa.aspect<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=aspect, y=Average_Stand_Age, color=Average_Stand_Age)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "aspect", y ="Average_Stand_Age", title ="Average Stand Age vs Aspect", color ="Average_Stand_Age") +
+  theme(plot.title = element_text(hjust = 0.5))
+avg.sa.aspect
+
+avg.sa.tpi1000<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=tpi1000m, y=Average_Stand_Age, color=Average_Stand_Age)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "1000m TPI", y ="Average Stand Age", title ="Average Stand Age vs 1000m TPI", color ="Average Stand Age") +
+  theme(plot.title = element_text(hjust = 0.5))
+avg.sa.tpi1000
+
+avg.sa.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
+  geom_point(mapping=aes(x=lulc_reduced, y=Average_Stand_Age, color=Average_Stand_Age)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Landcover Types", y ="Average Stand Age",
+       title ="Average Stand Age vs Landcover Type", color ="Average Stand Age") + 
+  theme(plot.title = element_text(hjust = 0.5))
+avg.sa.lulc
+
+avg.sa.CAR<-car::avPlots(model = Average_Stand_Age10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
+             grid=TRUE,
+             ellipse=FALSE,
+             marginal.scale=FALSE,
+             main=("Estimated Stand Age Added-Variable Plots")) 
+
+```
+
+## Lidar
+```{r Lidar}
+
+
+#### Read in Plots
+plotsf<- plots %>%
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) 
+
+# Obtain Plot Coordinates in Lidar Projection
+lasfile="proj_data/LAS/plot_56_USGS_LPC_WY_Sheridan_2020_D20_13TCK0453.laz"
+
+lproj=readLASheader(lasfile) %>% crs()
+
+#10m polys 
+plot_polys <- plotsf %>% 
+  st_transform(.,crs="+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m no_defs") %>% 
+  st_buffer(dist = 15,endCapStyle="SQUARE") %>% 
+  st_transform(.,crs=st_crs(4326)) 
+
+# Plot Specific Change 
+plotgeo <-plot_polys[56,] %>% 
+  st_transform(.,crs=lproj) 
+
+
+# Read in New LAS File
+lasPlots <-readLAS(lasfile,
+                   filter = paste("-keep_xy ",paste(st_bbox(plotgeo),
+                                                    collapse=" "))) %>% 
+  clip_roi(geometry= plotgeo) 
+
+plot(lasPlots) 
+
+#dtm, dsm, chm 
+dsm2 <- lidR::grid_canopy(lasPlots, res=2, p2r()) 
+dtm2 <- lidR::grid_terrain(lasPlots, res= 2, algorithm=tin()) 
+
+#Crop! 
+chm2<-dsm2-dtm2 
+chmcrop <- crop(chm2, plotgeo)  
+
+#TRUE CROPPED MEAN 
+chmmean<- cellStats(chmcrop, stat=mean) 
+view(chmmean)  
+
+#TRUE CROPPED SD
+chmstd<-  cellStats(chmcrop, stat=sd) 
+view(chmstd) 
+
+#Max Value
+chmmax <- cellStats(chmcrop, stat=max)
+view(chmmax)
+
+#Min Value 
+chmmin <- cellStats(chmcrop, stat=min)
+view(chmmin)
+
+#Plot and Hist
+plot(chmcrop, col = height.colors(25))
+hist(chmcrop)
+
+
+```
+
+## Plotted Species Diversity
+```{r Species Diversity Plotted}
+Plotted_div<-ggplot(data=Merged, mapping=aes(x=plots$lon, y=plots$lat, color =div))+
+  geom_point()+
+  scale_color_viridis_c(option="turbo")+
+   labs(x = "Longitude", y = "Latitude", title ="Species Occurene Throughout Plots", color ="Diversity")
+
+Plotted_div
+```
+
+
+## Statistics Per Plot  
+This image displays the data collected at each plot in a spatial format. The graphic in the top left shows the plots, numbered. The next image shows the mean Gap Fraction per plot. Followed by the mean PAR LAI per plot, the mean PAR Average per plot and the mean Canopy Density per plot. The second row of images shows the mean Leaf Angle per plot, the standard deviation of the Gap Fraction per plot, the standard deviation of the PAR LAI per plot, the standard deviation of the PAR Average per plot and the standard deviation of the Canopy Density per plot. 
+```{r, fig.width=8, fig.height=6}
+plot(bind) 
+ title(main = "Extracting Points", line= 8)
+ 
+```
+
+## Trees
+This graph displays the location of species across plots, with a size of the point correlated to the diameter breast height of the individual trees. 
+```{r Trees}
+spatial_tc<-ggplot(data=tree_coords, mapping=aes(x=lon, y=lat, color=Species_Scientific_Name, size=bighornDataNS$st))+
+  geom_point()+  
+  scale_color_viridis_d(option="turbo")+
+  labs(x = "Latitude", y = "Longitude", title ="Spatial Occurrence of Tree Species", color ="Species Scientific Name") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+spatial_tc
+
+```
+
+

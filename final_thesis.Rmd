@@ -4,9 +4,11 @@ author: "Alex Gould"
 output:
   html_document:
     theme: yeti
+    style: styles.css
 editor_options: 
   chunk_output_type: console
 ---
+
 # Libraries 
 ```{r,  message=F, warning=F, results='hide'}
 library(moments)

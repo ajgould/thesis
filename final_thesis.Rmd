@@ -67,7 +67,6 @@ DBHsAndDensity <-read.csv("proj_data/DBH_Density.csv")
 
 nf <- read_sf("proj_data/S_USA.AdministrativeForest/S_USA.AdministrativeForest.shp") %>%
   st_transform(.,crs=32613)
-st_crs(nf)
 
 bighorn <- dplyr::filter(nf,FORESTNAME=="Bighorn National Forest") 
 
@@ -99,7 +98,24 @@ lulc=as.factor(lulc)
 # Update the RAT with a Left Join
 levels(lulc)=left_join(levels(lulc)[[1]],lulc_names)
 table(values(lulc))
+```
 
+## Plot of Land Use Land Cover
+```{r Land Use Land Cover Plots}
+lulc_colors=data.frame(class=levels(lulc)[[1]]$class)
+
+lulc_colors$col=c("#EBA998","#FFFB00", "#4080BF", "#989F60", "#AF5063", "#3200FF", "#A289A8", "#BE20DF", "#971452", "#6250AF" ,  "#8EB880", "#624074", "#A0B232", "#B232A0", "#FF00E8","#F1197C", "#7C2B4B", "#7C2B72", "#A0D092", "#D095DE", "#70808F", "#10D4EF", "#AF50A7", "#EF103D","#4F30CF", "#FFC300", "#BCFF00", "#00BBFF", "#2080DF", "#DF8E20", "#9A8A86", "#CF3050", "#708F75", "#8F708D", "#95BCDE",  "#8F8F70", "#FFCD00", "#EB98E1", "#543E6C", "#DFBA20", "#FF9300", "#00FF43", "#B25932", "#B2327F", "#543B1B", "#1B543B", "#1B3D54", "#805C73", "#B62B85", "#F119B2", "#F18E19", "#591AAF", "#E0FF00", "#E0FF90")
+
+lulcplot<-rasterVis::gplot(lulc)+
+  geom_raster(aes(fill=as.factor(value)))+
+  scale_fill_manual(labels=lulc_colors$class,
+                    values=lulc_colors$col,
+                    name="Landcover Type")+
+  coord_equal()+
+  theme(legend.position = "bottom", legend.key.size=unit(.5, "line"), legend.text=element_text(size=8))+
+  guides(fill=guide_legend(ncol=3,byrow=TRUE))
+
+lulcplot
 
 ```
 
@@ -110,7 +126,6 @@ canopy <- CanopyData %>%
   dplyr::select(-Sunflecks) %>% 
   summarise_if(is.numeric, list(mean = function(x) mean(x, na.rm = TRUE), 
                                       sd = function(x) sd(x, na.rm = TRUE)))
-
 plots <- PlotData %>%
  dplyr::group_by(Plot_Number) %>%
  dplyr::summarize(lat=mean(Lat), lon=mean(Lon)) 
@@ -118,6 +133,32 @@ plots <- PlotData %>%
 trees<- TreeData %>%
   summarize(Plot_Number, Tree_ID, Species_Scientific_Name, DBH, Aprox_Tree_Age) %>%
    dplyr:: group_by(Plot_Number) 
+```
+
+# Study Site Plots
+```{r Study Site Plots}
+
+#GGPlot of Study Site
+studysiteplots<-ggplot(plots)+
+  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number)) +
+  scale_color_viridis_c(option="turbo")+
+  labs(x = "Longitude", y ="Latitude",
+       title ="Study Site Plots", color ="Plot Number") + 
+  theme(plot.title = element_text(hjust = 0.5))
+studysiteplots
+
+#Isolate standard lidar study plots 
+Lidarplots <-plots[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43,
+                              51,57, 58,59, 65,66, 69),]
+
+#GGPlot of Lidar Plots 
+lidarplotsgg<-ggplot(Lidarplots)+
+  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number))+
+  scale_color_viridis_c(option="turbo")+
+       labs(x = "Longitude", y ="Latitude",
+       title ="Lidar Plots", color ="Plot Number") + 
+  theme(plot.title = element_text(hjust = 0.5))
+lidarplotsgg
 ```
 
 ## Table of Species by Plot
@@ -128,7 +169,7 @@ tree1<-trees %>%
   dplyr::group_by(Plot_Number,Species_Scientific_Name) %>% 
   dplyr::summarise(count=n()) %>%
   tidyr::spread(Species_Scientific_Name,count) %>% 
-  dplyr:: mutate_all(function(x) ifelse(is.na(x),0,x))
+  dplyr::mutate_all(function(x) ifelse(is.na(x),0,x))
 
 treecounts <-table(trees$Species_Scientific_Name)
 view(tree1)
@@ -151,45 +192,6 @@ tree_counts_bargraph<-barplot(treecounts,
         cex.names=0.2, legend=TRUE)
 ```
 
-
-## Calculate the Diversity
-```{r Diversity}
-diversity=data.frame(Plot_Number=tree1$Plot_Number,div=diversity(tree1))
-
-```
-
-### Species Diversity
-This bar graph shows the diversity within each plot. Plot 2 high the highest diversity at 1.2366849, and plot 60 had the lowest diversity of 0.0836497. 
-```{r, fig.width=6, fig.height=3}
-spatial_div<-ggplot(data= diversity, mapping=aes(x=Plot_Number, y=div, fill=div))+
-  geom_bar(stat = "identity")+
-  scale_fill_viridis_c(option="turbo")+
-  labs(x = "Plot Number", y = "Diversity", title ="Species Diversity Across Plots")
-spatial_div
-
-```
-
-## Create a Merged Dataset
-```{r Merged}
-
-Merged <- merge(canopy, plots) %>%
-  merge(DBHsAndDensity)%>%
- # merge(TreeHeightsandAge) %>%
-  merge(diversity) %>% 
-  st_as_sf(coords = c(x="lon", y="lat")) %>%
-  st_set_crs(.,value=4326) %>%
-  st_transform(.,crs=st_crs(DEM))
-
-Merged_With_TreeHeightsandAge <- merge(canopy, plots) %>%
-  merge(TreeHeightsandAge) %>%
-  st_as_sf(coords = c(x="lon", y="lat")) %>%
-  st_set_crs(.,value=4326) %>%
-  st_transform(.,crs=st_crs(DEM))
-#4326 would be fine 
-
-tree_coords <- merge(trees, plots)
-
-```
 
 ## Calculate TPI, Slope angle, Slope aspect and Elevation
 ```{r Topo}
@@ -330,7 +332,6 @@ histtpi1000m<-hist(tpi1000m[])
 ```
 
 
-
 ## Lidar Images of Plots 
 ```{r Lidar}
 
@@ -404,10 +405,50 @@ hist(chmcrop)
 
 ```
 
+## Calculate the Diversity
+```{r Diversity}
+diversity=data.frame(Plot_Number=tree1$Plot_Number,div=diversity(tree1))
+diversity
+
+```
+
+### Species Diversity
+This bar graph shows the diversity within each plot. Plot 2 high the highest diversity at 1.2366849, and plot 60 had the lowest diversity of 0.0836497. 
+```{r, fig.width=6, fig.height=3}
+spatial_div<-ggplot(data= diversity, mapping=aes(x=Plot_Number, y=div, fill=div))+
+  geom_bar(stat = "identity")+
+  scale_fill_viridis_c(option="turbo")+
+  labs(x = "Plot Number", y = "Diversity", title ="Species Diversity Across Plots")
+spatial_div
+
+```
+
+## Create a Merged Dataset
+```{r Merged}
+
+Merged <- merge(canopy, plots) %>%
+  merge(DBHsAndDensity)%>%
+ # merge(TreeHeightsandAge) %>%
+  merge(diversity) %>% 
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) %>%
+  st_transform(.,crs=st_crs(DEM))
+
+Merged_With_TreeHeightsandAge <- merge(canopy, plots) %>%
+  merge(TreeHeightsandAge) %>%
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) %>%
+  st_transform(.,crs=st_crs(DEM))
+#4326 would be fine 
+
+tree_coords <- merge(trees, plots)
+
+```
+
 
 ## Stack All Topographic Variables
 ```{r Stack_Topo}
-all_topo <- stack(DEM,
+all_topo <- raster::stack(DEM,
               TRI,
               slope, aspect, 
               eastwest, northsouth,
@@ -415,6 +456,7 @@ all_topo <- stack(DEM,
             
 plot(all_topo)
 ```
+ 
 
 ## Combine and Clean all Data at 10 Meter Resolution
 ```{r 10m_Combining_and_Cleaning}
@@ -556,6 +598,24 @@ NSbighornDataTreeHeightsAndAge <- bind_cols(bindTreeNS,as.data.frame(envi2TreeNS
   )))
 ```
 
+## Interactive Study Site Plots
+```{r Interactive Study Site Plots}
+
+# Interactive Map of All Plots 
+tmap::tmap_mode(mode='view')
+tm_shape(bindTree)+
+  tm_dots(col='black')
+
+#Isolate Interactive Lidar Plots 
+LidarplotsInt <-bindTree[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43, 51,57, 58,59, 65,66, 69),]
+
+#Interactive Map of Lidar Plots
+tmap::tmap_mode(mode='view')
+tm_shape(LidarplotsInt, )+
+  tm_dots(col='blue')
+
+```
+
 ## Forest Structure Correlations at 10 Meters
 ```{r 10m_Correlations} 
 
@@ -596,6 +656,354 @@ my_pmat10<-cor_pmat(cor_bighorn10m)
 view(my_pmat10)
 ggcorrplot(corr = my_cor10, p.mat = my_pmat10)
 ```
+
+## Tree Height Correlations at 10 Meeters
+```{r TreeHeightCorrs}
+cor_bighornTreeHeightsAndAge <-bighornDataTreeHeightsAndAge %>% 
+  data.frame() %>%
+  dplyr::select(
+"Mean_Tree_Height" ,
+  "Sd_Tree_Height",
+   "Max_Tree_Height",
+    "Min_Tree_Height",
+   "Average_Stand_Age",
+    #"div",
+    "DEM"     ,
+    "TRI"          ,
+    "slope"        ,
+    "aspect"  ,
+    "eastwest"    ,
+    "northsouth"       ,
+    "tpi10m"          ,
+    "tpi100m"          ,
+    "tpi1000m"         ,
+  ) %>% 
+
+  na.omit()
+
+my_corTrees<-cor(cor_bighornTreeHeightsAndAge)
+my_pmatTrees<-cor_pmat(cor_bighornTreeHeightsAndAge)
+ggcorrplot(corr = my_corTrees,p.mat = my_pmatTrees)
+```
+
+## Model Building
+```{r Model Building}
+
+####Gap Fraction mean ####
+
+lm_GapFractionmMean10_exhaustive<-regsubsets(Gap_Fraction_mean~DEM+
+                                             TRI+
+                                             slope+ aspect+ 
+                                           eastwest+ northsouth+
+                                            tpi10m+ tpi100m+
+                                              tpi1000m+
+                                               lulc_reduced,
+                                             data=bighornData,
+                                             intercept=TRUE,
+                                             method="exhaustive",
+                                             nvmax =12, 
+                                             nbest =  3,)
+lm_GapFractionmMean10<-lm_GapFractionmMean10_exhaustive %>% 
+  broom::tidy() 
+view(lm_GapFractionmMean10)
+
+
+####Gap Fraction sd ####
+lm_GapFraction_sd10m_exhaustive<-regsubsets(Gap_Fraction_sd~DEM+
+                                               TRI+
+                                               slope+ aspect+ 
+                                               eastwest+ northsouth+
+                                               tpi10m+ tpi100m+
+                                               tpi1000m+
+                                               lulc_reduced,
+                                             data=bighornData,
+                                             intercept=TRUE,
+                                             method="exhaustive",
+                                             nvmax =12, 
+                                             nbest =  3,)
+lm_GapFraction_sd10m<-lm_GapFraction_sd10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_GapFraction_sd10m)
+
+
+#####################################################################################
+####PAR LAI mean ####
+lm_PAR_LAI_mean_10m_exhaustive<-regsubsets(PAR_LAI_mean~DEM+
+                                             TRI+
+                                             slope+ aspect+ 
+                                             eastwest+ northsouth+
+                                             tpi10m+ tpi100m+
+                                             tpi1000m+
+                                             lulc_reduced,
+                                           data=bighornData,
+                                           intercept=TRUE,
+                                           method="exhaustive",
+                                           nvmax =10, 
+                                           nbest =  3,)
+lm_PAR_LAI_mean_10m<-lm_PAR_LAI_mean_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_PAR_LAI_mean_10m)
+
+
+####PAR LAI sd ####
+lm_PAR_LAI_sd_10m_exhaustive<-regsubsets(PAR_LAI_sd~DEM+
+                                             TRI+
+                                             slope+ aspect+ 
+                                             eastwest+ northsouth+
+                                             tpi10m+ tpi100m+
+                                             tpi1000m+
+                                             lulc_reduced,
+                                           data=bighornData,
+                                           intercept=TRUE,
+                                           method="exhaustive",
+                                           nvmax =10, 
+                                           nbest =  3,)
+lm_PAR_LAI_sd_10m<-lm_PAR_LAI_sd_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_PAR_LAI_sd_10m)
+
+
+#####################################################################################
+####PAR Average mean ####
+lm_PAR_Average_mean_exhaustive<-regsubsets(PAR_Average_mean~DEM+
+                                           TRI+
+                                           slope+ aspect+ 
+                                           eastwest+ northsouth+
+                                           tpi10m+ tpi100m+
+                                           tpi1000m+
+                                           lulc_reduced,
+                                         data=bighornData,
+                                         intercept=TRUE,
+                                         method="exhaustive",
+                                         nvmax =10, 
+                                         nbest =  3,)
+lm_PAR_Average_mean_10m<-lm_PAR_Average_mean_exhaustive %>% 
+  broom::tidy() 
+view(lm_PAR_Average_mean_10m)
+
+
+####PAR Average SD ####
+lm_PAR_Average_sd10m_exhaustive<-regsubsets(PAR_Average_sd~ DEM+
+                        TRI+
+                        slope+ aspect+ 
+                        eastwest+ northsouth+
+                        tpi10m+ tpi100m+
+                        tpi1000m+
+                        lulc_reduced,
+                      data=bighornData,
+                      intercept=TRUE,
+                      method="exhaustive",
+                      nvmax =10, 
+                      nbest =  3)
+lm_PAR_Average_sd10m<-lm_PAR_Average_sd10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_PAR_Average_sd10m)
+#####################################################################################
+####Canopy Density Mean  ####
+lm_Canopy_Density_mean_10m_exhaustive <-regsubsets(Canopy_Density_mean~ DEM+
+                                       TRI+
+                                       slope+ aspect+ 
+                                       eastwest+ northsouth+
+                                       tpi10m+ tpi100m+
+                                       tpi1000m+
+                                       lulc_reduced,
+                                     data=bighornData,
+                                     intercept=TRUE,
+                                     method="exhaustive",
+                                     nvmax =10, 
+                                     nbest =  3)
+lm_Canopy_Density_mean_10m<-lm_Canopy_Density_mean_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_Canopy_Density_mean_10m)
+
+####Canopy Density SD####
+lm_Canopy_Density_sd_10m_exhaustive <-regsubsets(Canopy_Density_sd~ DEM+
+                                                     TRI+
+                                                     slope+ aspect+ 
+                                                     eastwest+ northsouth+
+                                                     tpi10m+ tpi100m+
+                                                     tpi1000m+
+                                                     lulc_reduced,
+                                                   data=bighornData,
+                                                   intercept=TRUE,
+                                                   method="exhaustive",
+                                                   nvmax =10, 
+                                                   nbest =  3)
+lm_Canopy_Density_sd_10m<-lm_Canopy_Density_sd_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_Canopy_Density_sd_10m)
+
+#####################################################################################
+#### Leaf Angle mean####
+lm_Leaf_Angle_mean_10_exhaustive <-regsubsets(Leaf_Angle_mean~ DEM+
+                                                   TRI+
+                                                   slope+ aspect+ 
+                                                   eastwest+ northsouth+
+                                                   tpi10m+ tpi100m+
+                                                   tpi1000m+
+                                                   lulc_reduced,
+                                                 data=bighornData,
+                                                 intercept=TRUE,
+                                                 method="exhaustive",
+                                                 nvmax =10, 
+                                                 nbest =  3)
+lm_Leaf_Angle_mean_10<-lm_Leaf_Angle_mean_10_exhaustive %>% 
+  broom::tidy() 
+view(lm_Leaf_Angle_mean_10)
+
+####Leaf Angle sd ####
+lm_Leaf_Angle_sd_10_exhaustive <-regsubsets(Leaf_Angle_sd~ DEM+
+                                                TRI+
+                                                slope+ aspect+ 
+                                                eastwest+ northsouth+
+                                                tpi10m+ tpi100m+
+                                                tpi1000m+
+                                                lulc_reduced,
+                                              data=bighornData,
+                                              intercept=TRUE,
+                                              method="exhaustive",
+                                              nvmax =10, 
+                                              nbest =  3)
+lm_Leaf_Angle_sd_10<-lm_Leaf_Angle_sd_10_exhaustive %>% 
+  broom::tidy() 
+view(lm_Leaf_Angle_sd_10)
+
+#####################################################################################
+####Diversity ####
+
+lm_Diversity_exhaustive <-regsubsets(div~ DEM+
+                                              TRI+
+                                              slope+ #aspect+ 
+                                              eastwest+ northsouth+
+                                              tpi10m+ tpi100m+
+                                              tpi1000m+
+                                              lulc_reduced,
+                                            data=bighornData,
+                                            intercept=TRUE,
+                                            method="exhaustive",
+                                            nvmax =10, 
+                                            nbest =  3)
+lm_Diversity_10m<-lm_Diversity_exhaustive %>% 
+  broom::tidy() 
+view(lm_Diversity_10m)
+#####################################################################################
+####Average DBH ####
+lm_DBH_mean_10m_exhaustive <-regsubsets(Average_DBH~ DEM+
+                                       TRI+
+                                       slope+ #aspect+ 
+                                       eastwest+ northsouth+
+                                       tpi10m+ tpi100m+
+                                       tpi1000m+
+                                       lulc_reduced,
+                                     data=bighornData,
+                                     intercept=TRUE,
+                                     method="exhaustive",
+                                     nvmax =10, 
+                                     nbest =  3)
+lm_DBH_mean_10m<-lm_DBH_mean_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_DBH_mean_10m)
+
+#####################################################################################
+####Dbh SD ####
+lm_DBH_sd_10m_exhaustive <-regsubsets(DBH_Sd~ DEM+
+                                          TRI+
+                                          slope+ #aspect+ 
+                                          eastwest+ northsouth+
+                                          tpi10m+ tpi100m+
+                                          tpi1000m+
+                                          lulc_reduced,
+                                        data=bighornData,
+                                        intercept=TRUE,
+                                        method="exhaustive",
+                                        nvmax =10, 
+                                        nbest =  3)
+lm_DBH_sd_10m<-lm_DBH_sd_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_DBH_sd_10m)
+#####################################################################################
+####Stand Density ####
+lm_Stand_Density_10m_exhaustive <-regsubsets(Stand_Density~ DEM+
+                                        TRI+
+                                        slope+ #aspect+ 
+                                        eastwest+ northsouth+
+                                        tpi10m+ tpi100m+
+                                        tpi1000m+
+                                        lulc_reduced,
+                                      data=bighornData,
+                                      intercept=TRUE,
+                                      method="exhaustive",
+                                      nvmax =10, 
+                                      nbest =  3)
+lm_Stand_Density_10m<-lm_Stand_Density_10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_Stand_Density_10m)
+
+###################################################################################
+####Mean Tree Height  ####
+lm_TreeHeightMean_exhaustive<-regsubsets(Mean_Tree_Height~DEM+TRI+slope+aspect+ eastwest+northsouth+
+                                               tpi10m+  tpi100m+  tpi1000m+
+                                               lulc_reduced,
+                                             data=bighornDataTreeHeightsAndAge,
+                                             intercept=TRUE,
+                                             method="exhaustive",
+                                             nvmax =10, 
+                                             nbest =  3,)
+
+lm_TreeHeightMean<-lm_TreeHeightMean_exhaustive %>% 
+  broom::tidy() 
+view(lm_TreeHeightMean)
+
+ Mean_Tree_Height10m<-lm(Mean_Tree_Height~northsouth+lulc_reduced,
+                     data=bighornDataTreeHeightsAndAge)
+summary(Mean_Tree_Height10m)
+###################################################################################
+####SD Tree Height ####
+
+lm_TreeHeight_SD_exhaustive<-regsubsets(Sd_Tree_Height~DEM+TRI+slope+aspect+ eastwest+northsouth+
+                                           tpi10m+  tpi100m+  tpi1000m+
+                                           lulc_reduced,
+                                         data=bighornDataTreeHeightsAndAge,
+                                         intercept=TRUE,
+                                         method="exhaustive",
+                                         nvmax =10, 
+                                         nbest =  3,)
+
+lm_TreeHeightSD<-lm_TreeHeight_SD_exhaustive %>% 
+  broom::tidy() 
+view(lm_TreeHeightSD)
+
+##################################################################################
+#Max Tree Height
+lm_Max_TreeHeight_exhaustive<-regsubsets(Max_Tree_Height~DEM+TRI+slope+aspect+ eastwest+northsouth+
+                                          tpi10m+  tpi100m+  tpi1000m+
+                                          lulc_reduced,
+                                        data=bighornDataTreeHeightsAndAge,
+                                        intercept=TRUE,
+                                        method="exhaustive",
+                                        nvmax =10, 
+                                        nbest =  3,)
+
+lm_Max_TreeHeight<-lm_Max_TreeHeight_exhaustive %>% 
+  broom::tidy() 
+view(lm_Max_TreeHeight)
+
+##################################################################################
+#Average Stand Age (tpi100 and 1000 individually, and Landforms100 and 1000)
+lm_Average_Stand_Age10m_exhaustive<-regsubsets(Average_Stand_Age~DEM+TRI+slope+aspect+ eastwest+northsouth+
+                                           tpi10m+  tpi100m+  tpi1000m+
+                                           lulc_reduced,
+                                         data=bighornDataTreeHeightsAndAge,
+                                         intercept=TRUE,
+                                         method="exhaustive",
+                                         nvmax =10, 
+                                         nbest =  3,)
+
+lm_Average_Stand_Age10m<-lm_Average_Stand_Age10m_exhaustive %>% 
+  broom::tidy() 
+view(lm_Average_Stand_Age10m)
+```
+
 
 ## Forest Structure Regressions at 10 Meters
 ```{r 10m_Regressions}
@@ -698,34 +1106,6 @@ summary(Stand_Density_10m)
 #####################################################################################
 ```
 
-## Tree Height Correlations at 10 Meeters
-```{r TreeHeightCorrs}
-cor_bighornTreeHeightsAndAge <-bighornDataTreeHeightsAndAge %>% 
-  data.frame() %>%
-  dplyr::select(
-"Mean_Tree_Height" ,
-  "Sd_Tree_Height",
-   "Max_Tree_Height",
-    "Min_Tree_Height",
-   "Average_Stand_Age",
-    #"div",
-    "DEM"     ,
-    "TRI"          ,
-    "slope"        ,
-    "aspect"  ,
-    "eastwest"    ,
-    "northsouth"       ,
-    "tpi10m"          ,
-    "tpi100m"          ,
-    "tpi1000m"         ,
-  ) %>% 
-
-  na.omit()
-
-my_corTrees<-cor(cor_bighornTreeHeightsAndAge)
-my_pmatTrees<-cor_pmat(cor_bighornTreeHeightsAndAge)
-ggcorrplot(corr = my_corTrees,p.mat = my_pmatTrees)
-```
 
 ## Tree Height Regressions at 10 Meters
 ```{r TreeHeightandStandAge_Regressions}
@@ -758,70 +1138,10 @@ Average_Stand_Age10m<-lm(Average_Stand_Age~aspect+ tpi1000m +lulc_reduced,
 summary(Average_Stand_Age10m)
 ```
 
-# Study Site Plots
-```{r Study Site Plots}
-
-# Interactive Map of All Plots 
-tmap::tmap_mode(mode='view')
-tm_shape(bindTree)+
-  tm_dots(col='black')
-
-
-#GGPlot of Study Site
-studysiteplots<-ggplot(plots)+
-  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number)) +
-  scale_color_viridis_c(option="turbo")+
-  labs(x = "Longitude", y ="Latitude",
-       title ="Study Site Plots", color ="Plot Number") + 
-  theme(plot.title = element_text(hjust = 0.5))
-studysiteplots
-
-#Isolate Interactive Lidar Plots 
-LidarplotsInt <-bindTree[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43, 51,57, 58,59, 65,66, 69),]
-
-#Interactive Map of Lidar Plots
-tmap::tmap_mode(mode='view')
-tm_shape(LidarplotsInt, )+
-  tm_dots(col='blue')
-
-#Isolate standard lidar study plots 
-Lidarplots <-plots[-c(7,12,13, 23,24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 43,
-                              51,57, 58,59, 65,66, 69),]
-
-#GGPlot of Lidar Plots 
-lidarplotsgg<-ggplot(Lidarplots)+
-  geom_point(mapping=aes(x=lon, y=lat, color=Plot_Number))+
-  scale_color_viridis_c(option="turbo")+
-       labs(x = "Longitude", y ="Latitude",
-       title ="Lidar Plots", color ="Plot Number") + 
-  theme(plot.title = element_text(hjust = 0.5))
-lidarplotsgg
-```
- 
-## Plot of Land Use Land Cover
-```{r Land Use Land Cover Plots}
-lulc_colors=data.frame(class=levels(lulc)[[1]]$class)
-
-lulc_colors$col=c("#EBA998","#FFFB00", "#4080BF", "#989F60", "#AF5063", "#3200FF", "#A289A8", "#BE20DF", "#971452", "#6250AF" ,  "#8EB880", "#624074", "#A0B232", "#B232A0", "#FF00E8","#F1197C", "#7C2B4B", "#7C2B72", "#A0D092", "#D095DE", "#70808F", "#10D4EF", "#AF50A7", "#EF103D","#4F30CF", "#FFC300", "#BCFF00", "#00BBFF", "#2080DF", "#DF8E20", "#9A8A86", "#CF3050", "#708F75", "#8F708D", "#95BCDE",  "#8F8F70", "#FFCD00", "#EB98E1", "#543E6C", "#DFBA20", "#FF9300", "#00FF43", "#B25932", "#B2327F", "#543B1B", "#1B543B", "#1B3D54", "#805C73", "#B62B85", "#F119B2", "#F18E19", "#591AAF", "#E0FF00", "#E0FF90")
-
-lulcplot<-rasterVis::gplot(lulc)+
-  geom_raster(aes(fill=as.factor(value)))+
-  scale_fill_manual(labels=lulc_colors$class,
-                    values=lulc_colors$col,
-                    name="Landcover Type")+
-  coord_equal()+
-  theme(legend.position = "bottom", legend.key.size=unit(.5, "line"), legend.text=element_text(size=8))+
-  guides(fill=guide_legend(ncol=3,byrow=TRUE))
-
-lulcplot
-
-```
+![Regression Results Table](Maps/regression results.png)
 
 # Regression Results
 ```{r Regression Results}
-regression_results <-read.csv("proj_data/Regression_Results.csv")
-view(regression_results)
-
 
 #Gap Fraction Mean 
 par(mfrow=c(2,3))
@@ -1340,7 +1660,6 @@ Gap_Fraction_sd_Car<-car::avPlots(model = GapFraction_sd_10m,
 
              
 ```
-![Regression Results Table](Maps/regression results.png)
 
 ## PAR LAI Plots
 ```{r PAR LAI Plots}

@@ -78,8 +78,10 @@ bighorn <- dplyr::filter(nf,FORESTNAME=="Bighorn National Forest")
 
 DEM <- raster("proj_data/DEM.tif") 
 
-st_crs(DEM)
 ```
+
+## Elevation of Bighorn National Forest 
+![Elevation of Bighorn National Forest.](Maps/elevation map full.png)
 
 # Load in Wyoming Landuse Landcover Data
 ```{r Landuse_Landcover}
@@ -130,6 +132,7 @@ tree1<-trees %>%
 
 treecounts <-table(trees$Species_Scientific_Name)
 view(tree1)
+tree1
 view(treecounts)
 
 ```
@@ -147,6 +150,7 @@ tree_counts_bargraph<-barplot(treecounts,
         names.arg=c("Juniperus occidentalis", "Picea engelmannii","Pinus contorta", "Pinus ponderosa", "Pinus flexilis", "Populus tremuloides", "Pseudotsuga menziesii"),
         cex.names=0.2, legend=TRUE)
 ```
+
 
 ## Calculate the Diversity
 ```{r Diversity}
@@ -197,8 +201,15 @@ tpi1000m <- raster("proj_data/tpi1000m.tif")
 
 TRI <- raster("proj_data/TRI.tif")
 slope <- raster("proj_data/slope.tif")
-aspect <- raster("proj_data/aspect.tif")
+```
+![Slope Angle of Bighorn National Forest.](Maps/slope angle full.png)
 
+```{r}
+aspect <- raster("proj_data/aspect.tif")
+```
+![Slope Aspect of Bighorn National Forest.](Maps/slope aspect full.png)
+
+```{r}
 eastwest <- raster("proj_data/eastwest.tif")
 northsouth <- raster("proj_data/northsouth.tif")
 ```
@@ -317,6 +328,82 @@ tpi1000mplot
 histtpi1000m<-hist(tpi1000m[])
 
 ```
+
+
+
+## Lidar Images of Plots 
+```{r Lidar}
+
+#### Read in Plots
+plotsf<- plots %>%
+  st_as_sf(coords = c(x="lon", y="lat")) %>%
+  st_set_crs(.,value=4326) 
+
+# Obtain Plot Coordinates in Lidar Projection
+lasfile="proj_data/LAS/plot_52_USGS_LPC_WY_Sheridan_2020_D20_13TCK1344.laz"
+
+lproj=readLASheader(lasfile) %>% 
+  crs()
+
+#10m polys 
+plot_polys <- plotsf %>% 
+  st_transform(.,crs="+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m no_defs") %>% 
+  st_buffer(dist = 50,endCapStyle="SQUARE") %>% 
+  st_transform(.,crs=st_crs(4326)) 
+
+# Plot Specific Change 
+plotgeo <-plot_polys[52,] %>% 
+  st_transform(.,crs=lproj) 
+
+
+# Read in New LAS File
+lasPlots <-readLAS(lasfile,
+                   filter = paste("-keep_xy ",paste(st_bbox(plotgeo),
+                                                    collapse=" "))) %>% 
+  clip_roi(geometry= plotgeo) 
+
+plot(lasPlots) 
+```
+
+
+![Plot 2.1, Lidar Image of Plot 2 in Bighorn National Forest.](lidar_maps/Plot 2 100m.1.png) ![Plot 2.2, Lidar Image of Plot 2 in Bighorn National Forest.](lidar_maps/Plot 2 100m.2.png) ![Plot 6, Lidar Image of Plot 6 in Bighorn National Forest.](lidar_maps/Plot 6 100m.2.png) ![Plot 8.1, Lidar Image of Plot 8 in Bighorn National Forest.](lidar_maps/Plot 8 100m.1.png) ![Plot 8.2, Lidar Image of Plot 8 in Bighorn National Forest.](lidar_maps/Plot 8 100m.3.png) ![Plot 11.1, Lidar Image of Plot 11 in Bighorn National Forest.](lidar_maps/Plot 11 100m.1.png) ![Plot 11.2, Lidar Image of Plot 11 in Bighorn National Forest.](lidar_maps/Plot 11 100m.2.png) ![Plot 14.1, Lidar Image of Plot 14 in Bighorn National Forest.](lidar_maps/Plot 14 100m.1.png) ![Plot 14.2, Lidar Image of Plot 14 in Bighorn National Forest.](lidar_maps/Plot 14 100m.2.png) ![Plot 15, Lidar Image of Plot 15 in Bighorn National Forest.](lidar_maps/Plot 15 100m.1.png) ![Plot 17, Lidar Image of Plot 17 in Bighorn National Forest.](lidar_maps/Plot 17 100m.1.png) ![Plot 18, Lidar Image of Plot 18 in Bighorn National Forest.](lidar_maps/Plot 18.png) ![Plot 20, Lidar Image of Plot 20 in Bighorn National Forest.](lidar_maps/Plot 20.png) ![Plot 42.1, Lidar Image of Plot 42 in Bighorn National Forest.](lidar_maps/Plot 42.1.png) ![Plot 42.2, Lidar Image of Plot 42 in Bighorn National Forest.](lidar_maps/Plot 42.3.png) ![Plot 46, Lidar Image of Plot 46 in Bighorn National Forest.](lidar_maps/Plot 46.1.png) ![Plot 47.1, Lidar Image of Plot 47 in Bighorn National Forest.](lidar_maps/Plot 47 100m.1.png) ![Plot 47.2, Lidar Image of Plot 47 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 47 30m.2.png) ![Plot 48.1, Lidar Image of Plot 48 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 48 30m.1.png) ![Plot 48.2, Lidar Image of Plot 48 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 48 30m.2.png) ![Plot 50, Lidar Image of Plot 50 in Bighorn National Forest.](lidar_maps/Plot 50.png) ![Plot 52.1, Lidar Image of Plot 52 at 100m Resolution in Bighorn National Forest.](lidar_maps/Plot 52 100m.png) ![Plot 52.2, Lidar Image of Plot 52 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 52 30m rock-chuck-pass.png)
+
+
+## Calculating Tree Heights 
+```{r Tree Heights}
+#dtm, dsm, chm 
+dsm2 <- lidR::grid_canopy(lasPlots, res=2, p2r()) 
+dtm2 <- lidR::grid_terrain(lasPlots, res= 2, algorithm=tin()) 
+
+
+#Crop! 
+chm2<-dsm2-dtm2 
+
+chmcrop <- crop(chm2, plotgeo)  
+plot(chmcrop)
+
+#TRUE CROPPED MEAN 
+chmmean<- cellStats(chmcrop, stat=mean) 
+view(chmmean)  
+
+#TRUE CROPPED SD
+chmstd<-  cellStats(chmcrop, stat=sd) 
+view(chmstd) 
+
+#Max Value
+chmmax <- cellStats(chmcrop, stat=max)
+view(chmmax)
+
+#Min Value 
+chmmin <- cellStats(chmcrop, stat=min)
+view(chmmin)
+
+#Plot and Hist
+plot(chmcrop, col = height.colors(25))
+hist(chmcrop)
+
+```
+
 
 ## Stack All Topographic Variables
 ```{r Stack_Topo}
@@ -1253,6 +1340,7 @@ Gap_Fraction_sd_Car<-car::avPlots(model = GapFraction_sd_10m,
 
              
 ```
+![Regression Results Table](Maps/regression results.png)
 
 ## PAR LAI Plots
 ```{r PAR LAI Plots}
@@ -1761,103 +1849,6 @@ avg.sa.CAR<-car::avPlots(model = Average_Stand_Age10m,
              ellipse=FALSE,
              marginal.scale=FALSE,
              main=("Estimated Stand Age Added-Variable Plots")) 
-
-```
-
-## Lidar Images of Plots 
-```{r Lidar}
-
-#### Read in Plots
-plotsf<- plots %>%
-  st_as_sf(coords = c(x="lon", y="lat")) %>%
-  st_set_crs(.,value=4326) 
-
-# Obtain Plot Coordinates in Lidar Projection
-lasfile="proj_data/LAS/plot_52_USGS_LPC_WY_Sheridan_2020_D20_13TCK1344.laz"
-
-lproj=readLASheader(lasfile) %>% 
-  crs()
-
-#10m polys 
-plot_polys <- plotsf %>% 
-  st_transform(.,crs="+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m no_defs") %>% 
-  st_buffer(dist = 50,endCapStyle="SQUARE") %>% 
-  st_transform(.,crs=st_crs(4326)) 
-
-# Plot Specific Change 
-plotgeo <-plot_polys[52,] %>% 
-  st_transform(.,crs=lproj) 
-
-
-# Read in New LAS File
-lasPlots <-readLAS(lasfile,
-                   filter = paste("-keep_xy ",paste(st_bbox(plotgeo),
-                                                    collapse=" "))) %>% 
-  clip_roi(geometry= plotgeo) 
-
-plot(lasPlots) 
-```
-
-![Plot 2.1, Lidar Image of Plot 2 in Bighorn National Forest.](lidar_maps/Plot 2 100m.1.png)
-![Plot 2.2, Lidar Image of Plot 2 in Bighorn National Forest.](lidar_maps/Plot 2 100m.2.png)
-![Plot 6, Lidar Image of Plot 6 in Bighorn National Forest.](lidar_maps/Plot 6 100m.2.png)
-![Plot 8.1, Lidar Image of Plot 8 in Bighorn National Forest.](lidar_maps/Plot 8 100m.1.png)
-
-![Plot 8.2, Lidar Image of Plot 8 in Bighorn National Forest.](lidar_maps/Plot 8 100m.3.png)
-![Plot 11.1, Lidar Image of Plot 11 in Bighorn National Forest.](lidar_maps/Plot 11 100m.1.png)
-![Plot 11.2, Lidar Image of Plot 11 in Bighorn National Forest.](lidar_maps/Plot 11 100m.2.png)
-![Plot 14.1, Lidar Image of Plot 14 in Bighorn National Forest.](lidar_maps/Plot 14 100m.1.png)
-![Plot 14.2, Lidar Image of Plot 14 in Bighorn National Forest.](lidar_maps/Plot 14 100m.2.png)
-![Plot 15, Lidar Image of Plot 15 in Bighorn National Forest.](lidar_maps/Plot 15 100m.1.png)
-![Plot 17, Lidar Image of Plot 17 in Bighorn National Forest.](lidar_maps/Plot 17 100m.1.png)
-![Plot 18, Lidar Image of Plot 18 in Bighorn National Forest.](lidar_maps/Plot 18.png)
-
-![Plot 20, Lidar Image of Plot 20 in Bighorn National Forest.](lidar_maps/Plot 20.png)
-
-![Plot 42.1, Lidar Image of Plot 42 in Bighorn National Forest.](lidar_maps/Plot 42.1.png)
-![Plot 42.2, Lidar Image of Plot 42 in Bighorn National Forest.](lidar_maps/Plot 42.3.png)
-![Plot 46, Lidar Image of Plot 46 in Bighorn National Forest.](lidar_maps/Plot 46.1.png)
-
-![Plot 47.1, Lidar Image of Plot 47 in Bighorn National Forest.](lidar_maps/Plot 47 100m.1.png)
-![Plot 47.2, Lidar Image of Plot 47 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 47 30m.2.png)
-![Plot 48.1, Lidar Image of Plot 48 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 48 30m.1.png)
-![Plot 48.2, Lidar Image of Plot 48 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 48 30m.2.png)
-![Plot 50, Lidar Image of Plot 50 in Bighorn National Forest.](lidar_maps/Plot 50.png)
-![Plot 52.1, Lidar Image of Plot 52 at 100m Resolution in Bighorn National Forest.](lidar_maps/Plot 52 100m.png)
-![Plot 52.2, Lidar Image of Plot 52 at 30m Resolution in Bighorn National Forest.](lidar_maps/Plot 52 30m rock-chuck-pass.png)
-
-
-
-## Calculating Tree Heights 
-```{r Tree Heights}
-#dtm, dsm, chm 
-dsm2 <- lidR::grid_canopy(lasPlots, res=2, p2r()) 
-dtm2 <- lidR::grid_terrain(lasPlots, res= 2, algorithm=tin()) 
-
-#Crop! 
-chm2<-dsm2-dtm2 
-chmcrop <- crop(chm2, plotgeo)  
-
-#TRUE CROPPED MEAN 
-chmmean<- cellStats(chmcrop, stat=mean) 
-view(chmmean)  
-
-#TRUE CROPPED SD
-chmstd<-  cellStats(chmcrop, stat=sd) 
-view(chmstd) 
-
-#Max Value
-chmmax <- cellStats(chmcrop, stat=max)
-view(chmmax)
-
-#Min Value 
-chmmin <- cellStats(chmcrop, stat=min)
-view(chmmin)
-
-#Plot and Hist
-plot(chmcrop, col = height.colors(25))
-hist(chmcrop)
-
 
 ```
 

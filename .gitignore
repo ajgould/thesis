@@ -3,4 +3,6 @@
 .RData
 .Ruserdata
 proj_data/
-final_thesis_cache
+final_thesis_cache/
+final_thesis_files/
+index_cache/

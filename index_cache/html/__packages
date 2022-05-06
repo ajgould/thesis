@@ -46,3 +46,6 @@ ggspatial
 rnaturalearth
 rnaturalearthdata
 citation
+MASS
+Matrix
+lme4

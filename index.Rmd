@@ -72,6 +72,8 @@ library(ggspatial)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(citation)
+library(MASS)
+library(lme4)
 
 knitr::opts_chunk$set(cache=TRUE, warning=FALSE, message=FALSE)  
 ```
@@ -685,11 +687,17 @@ cor_bighorn10m <- bighornData %>% data.frame() %>%
   )  %>%
   na.omit()
 
-my_cor10<-cor(cor_bighorn10m, method="kendall")
+my_cor10<-cor(cor_bighorn10m)
 view(my_cor10)
 my_pmat10<-cor_pmat(cor_bighorn10m)
-view(my_pmat10)
+view(my_pmat10%>% format(scientific=F))
 ggcorrplot(corr = my_cor10, p.mat = my_pmat10)
+
+my_cor10kendall<-cor(cor_bighorn10m, method="kendall")
+view(my_cor10kendall)
+my_pmat10kendall<-cor_pmat(cor_bighorn10m, method="kendall")
+view(my_pmat10kendall %>% format(scientific=F))
+ggcorrplot(corr = my_cor10kendall, p.mat = my_pmat10kendall)
 ```
 
 ## Tree Height Correlations at 10 Meeters
@@ -718,6 +726,11 @@ cor_bighornTreeHeightsAndAge <-bighornDataTreeHeightsAndAge %>%
 my_corTrees<-cor(cor_bighornTreeHeightsAndAge)
 my_pmatTrees<-cor_pmat(cor_bighornTreeHeightsAndAge)
 ggcorrplot(corr = my_corTrees,p.mat = my_pmatTrees)
+
+
+my_corTreesKendall<-cor(cor_bighornTreeHeightsAndAge, method="kendall")
+my_pmatTreesKendall<-cor_pmat(cor_bighornTreeHeightsAndAge, method="kendall")
+ggcorrplot(corr = my_corTreesKendall,p.mat = my_pmatTreesKendall)
 ```
 
 ## Model Building
@@ -871,102 +884,232 @@ view(lm_Average_Stand_Age10m)
 
 ## Forest Structure Regressions at 10 Meters
 ```{r 10m_Regressions}
-#Gap Fraction mean
+#Gap Fraction mean 
 #p-value: 2.378e-05
 GapFraction_mean_10m<-lm(Gap_Fraction_mean~ TRI+ tpi1000m+lulc_reduced,
                          data=bighornData)
 summary(GapFraction_mean_10m)
+broom::tidy(GapFraction_mean_10m)
+broom::glance(GapFraction_mean_10m)
+broom::augment(GapFraction_mean_10m)
+densityPlot(GapFraction_mean_10m$residuals)
+AIC(GapFraction_mean_10m)
+BIC(GapFraction_mean_10m)
+# 
+# MVGapFraction_mean_10m<-glm(Gap_Fraction_mean~TRI+ tpi1000m+lulc_reduced,
+#                 family=gaussian(link="log"),
+#                 data=bighornData)
+# summary(MVGapFraction_mean_10m)
+#BIC(GapFraction_mean_10m, MVGapFraction_mean_10m)
 
-#Gap Fraction sd
+#Gap Fraction sd 
 #p-value: 0.05405
-GapFraction_sd_10m<-lm(Gap_Fraction_sd~  DEM,
-                       data=bighornData)
-summary(GapFraction_sd_10m)
+# GapFraction_sd_10m<-glm(Gap_Fraction_sd~  DEM,
+#                         family = gaussian(),
+#                         data=bighornData)
+# summary(GapFraction_sd_10m)
+#densityPlot(GapFraction_sd_10m$residuals)
+
+MVGapFraction_sd_10m<-glm(Gap_Fraction_sd~DEM,
+                family=gaussian(link="log"),
+                data=bighornData) 
+summary(MVGapFraction_sd_10m)
+AIC(MVGapFraction_sd_10m)
+BIC(MVGapFraction_sd_10m)
+broom::tidy(MVGapFraction_sd_10m) 
+broom::glance(MVGapFraction_sd_10m)
+densityPlot(MVGapFraction_sd_10m$residuals)
 
 
 #####################################################################################
-#PAR LAI mean
-#p-value: 0.1319
-PAR_LAI_mean_10m<-lm(PAR_LAI_mean~ DEM+tpi10m+lulc_reduced,
-                       data=bighornData)
-summary(PAR_LAI_mean_10m)
+####PAR LAI mean ####
+# #p-value: 0.1319
+# PAR_LAI_mean_10m<-lm(PAR_LAI_mean~ DEM+tpi10m+lulc_reduced,
+#                        data=bighornData)
+# summary(PAR_LAI_mean_10m)
 
+mvPAR_LAI_mean_10m<-glm(PAR_LAI_mean~ DEM+tpi10m+lulc_reduced,
+                family=gaussian(link="log"),
+                data=bighornData)
+summary(mvPAR_LAI_mean_10m)
+densityPlot(mvPAR_LAI_mean_10m$residuals)
+AIC(mvPAR_LAI_mean_10m)
+BIC(mvPAR_LAI_mean_10m) 
+#                     df      BIC
+# PAR_LAI_mean_10m    7 290.8233
+# mvPAR_LAI_mean_10m  7 289.6244
 
-#PAR LAI sd
-#0.02881
+####PAR LAI sd ####
+#p-value: 0.02881 
 PAR_LAI_sd_10m<-lm(PAR_LAI_sd~ eastwest,
                    data=bighornData)
 summary(PAR_LAI_sd_10m)
+AIC(PAR_LAI_sd_10m)
+BIC(PAR_LAI_sd_10m) 
+
+# mvPAR_LAI_sd_10m<-glm(PAR_LAI_sd~ eastwest,
+#                 family=gaussian(link="log"),
+#                 data=bighornData)
+# summary(mvPAR_LAI_sd10m)
+ # BIC(PAR_LAI_sd_10m,mvPAR_LAI_sd_10m) 
+#                  df      BIC
+# PAR_LAI_sd_10m    3 89.19279
+# mvPAR_LAI_sd_10m  3 89.71298
+
 
 #####################################################################################
-#PAR Average mean
+####PAR Average mean ####
 #p-value: 0.008254
 PAR_Average_mean_10m<-lm(PAR_Average_mean~  lulc_reduced,
                          data=bighornData)
 summary(PAR_Average_mean_10m)
+densityPlot(PAR_Average_mean_10m$residuals)
+AIC(PAR_Average_mean_10m)
+BIC(PAR_Average_mean_10m) 
+# mvPAR_Average_mean_10m<-glm(PAR_Average_mean~  lulc_reduced,
+#                 family=gaussian(link="log"),
+#                 data=bighornData)
+# summary(mvPAR_Average_mean_10m)
+# BIC(PAR_Average_mean_10m,mvPAR_Average_mean_10m)               
+#                         df      BIC
+# PAR_Average_mean_10m    5 1008.085
+# mvPAR_Average_mean_10m  5 1008.085
 
-#PAR Average SD
+
+####PAR Average SD ####
 #p-value: 0.01623
-PAR_Average_sd10m<-lm(PAR_Average_sd~ TRI+slope+ northsouth,
-                   data=bighornData)
-summary(PAR_Average_sd10m)
+# PAR_Average_sd10m<-lm(PAR_Average_sd~ TRI+slope+ northsouth,
+#                    data=bighornData)
+# summary(PAR_Average_sd10m)
+
+mvPAR_Average_sd10m<-glm(PAR_Average_sd~ TRI+slope+ northsouth,
+                family=gaussian(link="log"),
+                data=bighornData)
+summary(mvPAR_Average_sd10m)
+AIC(mvPAR_Average_sd10m)
+BIC(mvPAR_Average_sd10m) 
+
+# BIC(PAR_Average_sd10m,mvPAR_Average_sd10m)
+#                     df      BIC
+# PAR_Average_sd10m    5 978.5905
+# mvPAR_Average_sd10m  5 974.5668
 
 #####################################################################################
-#Canopy Density Mean 
+#### Canopy Density Mean ####
 #p-value: 8.287e-06
 Canopy_Density_mean_10m<-lm(Canopy_Density_mean~  DEM+ lulc_reduced,
                       data=bighornData)
 summary(Canopy_Density_mean_10m)
+AIC(Canopy_Density_mean_10m)
+BIC(Canopy_Density_mean_10m)
+densityPlot(Canopy_Density_mean_10m$residuals)
 
+# mvCanopy_Density_mean_10m<-glm(Canopy_Density_mean~  DEM+ lulc_reduced,
+#                 family=gaussian(link="logit"),
+#                 data=bighornData)
+# summary(mvCanopy_Density_mean_10m)
+#BIC(Canopy_Density_mean_10m,mvCanopy_Density_mean_10m) 
+#                           df      BIC
+# Canopy_Density_mean_10m    6 564.8079
+# mvCanopy_Density_mean_10m  6 566.1761
 
-#Canopy Density SD
+#####Canopy Density SD ####
 #5.175e-05
-Canopy_Density_sd_10m<-lm(Canopy_Density_sd~ DEM+tpi100m+ lulc_reduced,
-                            data=bighornData)
-summary(Canopy_Density_sd_10m)
-#
+# Canopy_Density_sd_10m<-lm(Canopy_Density_sd~ DEM+tpi100m+ lulc_reduced,
+#                             data=bighornData)
+# summary(Canopy_Density_sd_10m)
+
+mvCanopy_Density_sd_10m<-glm(Canopy_Density_sd~ DEM+tpi100m+ lulc_reduced,
+                family=gaussian(link="log"),
+                data=bighornData)
+summary(mvCanopy_Density_sd_10m)
+AIC(mvCanopy_Density_sd_10m)
+BIC(mvCanopy_Density_sd_10m)
+#BIC(Canopy_Density_sd_10m,mvCanopy_Density_sd_10m) 
+#                         df      BIC
+# Canopy_Density_sd_10m    7 461.2300
+# mvCanopy_Density_sd_10m  7 458.6098
+
 ####################################################################################
-#Leaf Angle mean
+#### Leaf Angle mean ####
 #p-value: 0.5935
 Leaf_Angle_mean_10<-lm(Leaf_Angle_mean~ lulc_reduced,
                           data=bighornData)
 summary(Leaf_Angle_mean_10)
+AIC(Leaf_Angle_mean_10)
+BIC(Leaf_Angle_mean_10)
+densityPlot(Leaf_Angle_mean_10$residuals)
 
-#Leaf Angle sd
+#### Leaf Angle sd ####
 #p-value: 0.001394
 Leaf_Angle_sd_10<-lm(Leaf_Angle_sd~ tpi1000m+lulc_reduced,
                        data=bighornData)
 summary(Leaf_Angle_sd_10)
+AIC(Leaf_Angle_sd_10)
+BIC(Leaf_Angle_sd_10)
+densityPlot(Leaf_Angle_sd_10$residuals)
 
 #####################################################################################
-#Diversity
+####Diversity ####
 # p-value: 0.0009821
 Diversity_10m<-lm(div~DEM+northsouth+lulc_reduced,
                      data=bighornData)
 summary(Diversity_10m) 
+AIC(Diversity_10m)
+BIC(Diversity_10m)
+densityPlot(Diversity_10m$residuals)
 
 #####################################################################################
 
-# Average DBH
+#### Average DBH ####
 #p-value: 0.0009843
-DBH_mean_10m<-lm(Average_DBH~ tpi100m+ lulc_reduced,
-                  data=bighornData)
-summary(DBH_mean_10m) 
+# DBH_mean_10m<-lm(Average_DBH~ tpi100m+ lulc_reduced,
+#                   data=bighornData)
+# summary(DBH_mean_10m)
+
+mvDBH_mean_10m<-glm(Average_DBH~ tpi100m+ lulc_reduced,
+                family=gaussian(link="log"),
+                data=bighornData)
+summary(mvDBH_mean_10m)
+AIC(mvDBH_mean_10m)
+BIC(mvDBH_mean_10m)
+#BIC(DBH_mean_10m,mvDBH_mean_10m)
+#                df      BIC
+# DBH_mean_10m    6 546.9549
+# mvDBH_mean_10m  6 545.7281
 
 #####################################################################################
 
-#SD DBH
+#### SD DBH #### 
 #p-value: 0.001216
-DBH_sd_10m<-lm(DBH_Sd~ tpi1000m+ lulc_reduced,
-                 data=bighornData)
-summary(DBH_sd_10m) 
+# DBH_sd_10m<-lm(DBH_Sd~ tpi1000m+ lulc_reduced,
+#                  data=bighornData)
+# summary(DBH_sd_10m)
+
+
+mvDBH_sd_10m<-glm(DBH_Sd~ tpi1000m+ lulc_reduced,
+                family=gaussian(link="log"), 
+                start = c(1,1,1,1,1),
+                data=bighornData)
+summary(mvDBH_sd_10m)
+AIC(mvDBH_sd_10m)
+BIC(mvDBH_sd_10m)
+densityPlot(mvDBH_sd_10m$residuals)
+
+#BIC(DBH_sd_10m,mvDBH_sd_10m)
+#              df      BIC
+# DBH_sd_10m    6 470.7204
+# mvDBH_sd_10m  6 467.4630
 
 #####################################################################################
-#Stand Density
+#S####tand Density ####
 #p-value: 1.806e-06
 Stand_Density_10m<-lm(Stand_Density~ DEM+ tpi100m+ lulc_reduced,
                data=bighornData)
 summary(Stand_Density_10m) 
+AIC(Stand_Density_10m)
+BIC(Stand_Density_10m)
+densityPlot(Stand_Density_10m$residuals)
 #####################################################################################
 ```
 
@@ -978,6 +1121,9 @@ summary(Stand_Density_10m)
  Mean_Tree_Height10m<-lm(Mean_Tree_Height~northsouth+lulc_reduced,
                      data=bighornDataTreeHeightsAndAge)
 summary(Mean_Tree_Height10m)
+AIC(Mean_Tree_Height10m)
+BIC(Mean_Tree_Height10m)
+densityPlot( Mean_Tree_Height10m$residuals)
 
 ###################################################################################
 #SD Tree Height
@@ -985,6 +1131,9 @@ summary(Mean_Tree_Height10m)
 SD_Tree_Height10m<-lm(Sd_Tree_Height~ tpi100m+lulc_reduced,
                       data=bighornDataTreeHeightsAndAge)
 summary(SD_Tree_Height10m)
+AIC(SD_Tree_Height10m)
+BIC(SD_Tree_Height10m)
+densityPlot(SD_Tree_Height10m$residuals)
 
 ##################################################################################
 #Max Tree Height (northsouth aspect)
@@ -992,17 +1141,23 @@ summary(SD_Tree_Height10m)
 Max_Tree_Height10m<-lm(Max_Tree_Height~ aspect+ tpi1000m +lulc_reduced,
                        data=bighornDataTreeHeightsAndAge)
 summary(Max_Tree_Height10m)
+AIC(Max_Tree_Height10m)
+BIC(Max_Tree_Height10m)
+densityPlot(Max_Tree_Height10m$residuals)
 
 ##################################################################################
 #Average Stand Age 
 #p-value: 0.0001305
 Average_Stand_Age10m<-lm(Average_Stand_Age~aspect+ tpi1000m +lulc_reduced,
                          data=bighornDataTreeHeightsAndAge)
-
 summary(Average_Stand_Age10m)
+AIC(Average_Stand_Age10m)
+BIC(Average_Stand_Age10m)
+densityPlot(Average_Stand_Age10m$residuals)
+
 ```
 
-![Regression Results Table](Maps/regression results.png)
+
 
 # Regression Results
 ```{r Regression Results}
@@ -1031,58 +1186,16 @@ gvlma(GapFraction_mean_10m)
 
 #Gap Fraction SD
 par(mfrow=c(2,3))
-plot(GapFraction_sd_10m, 1:6)
-gvlma(GapFraction_sd_10m)
-# Coefficients:
-# (Intercept)          DEM  
-#     0.29241     -0.04431  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = GapFraction_sd_10m) 
-# 
-#                      Value   p-value                   Decision
-# Global Stat        75.8689 1.332e-15 Assumptions NOT satisfied!
-# Skewness           37.5201 9.047e-10 Assumptions NOT satisfied!
-# Kurtosis           36.6137 1.440e-09 Assumptions NOT satisfied!
-# Link Function       0.5129 4.739e-01    Assumptions acceptable.
-# Heteroscedasticity  1.2221 2.690e-01    Assumptions acceptable.
+plot(MVGapFraction_sd_10m, 1:6)
 
 
 #PAR LAI Mean
 par(mfrow=c(2,3))
-plot(PAR_LAI_mean_10m, 1:6)
-gvlma(PAR_LAI_mean_10m)
-
-# Call:
-# lm(formula = PAR_LAI_mean ~ DEM + tpi10m + lulc_reduced, data = bighornData)
-# 
-# Coefficients:
-#     (Intercept)              DEM           tpi10m  lulc_reduced149  lulc_reduced151  
-#          2.1971           0.3347           0.3052           0.4209           0.5008  
-# lulc_reduced155  
-#          1.3725  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = PAR_LAI_mean_10m) 
-# 
-#                      Value  p-value                   Decision
-# Global Stat        9.45006 0.050784    Assumptions acceptable.
-# Skewness           7.28542 0.006952 Assumptions NOT satisfied!
-# Kurtosis           1.12472 0.288904    Assumptions acceptable.
-# Link Function      1.01848 0.312880    Assumptions acceptable.
-# Heteroscedasticity 0.02143 0.883608    Assumptions acceptable.
+plot(mvPAR_LAI_mean_10m, 1:6)
 
 #PAR LAI SD
 par(mfrow=c(2,3))
-plot(PAR_LAI_sd_10m, 1:6)
+plot(PAR_LAI_sd_10m, 1:6) 
 gvlma(PAR_LAI_sd_10m)
 
 # Call:
@@ -1134,29 +1247,7 @@ gvlma(PAR_Average_mean_10m)
 
 #PAR Average SD
 par(mfrow=c(2,3))
-plot(PAR_Average_sd10m, 1:6)
-gvlma(PAR_Average_sd10m)
-# Call:
-# lm(formula = PAR_Average_sd ~ TRI + slope + northsouth, data = bighornData)
-# 
-# Coefficients:
-# (Intercept)          TRI        slope   northsouth  
-#      160.80       129.52      -163.04       -45.35  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = PAR_Average_sd10m) 
-# 
-#                      Value   p-value                   Decision
-# Global Stat        19.3889 0.0006590 Assumptions NOT satisfied!
-# Skewness           12.4021 0.0004289 Assumptions NOT satisfied!
-# Kurtosis            0.2763 0.5991333    Assumptions acceptable.
-# Link Function       2.4977 0.1140115    Assumptions acceptable.
-# Heteroscedasticity  4.2128 0.0401191 Assumptions NOT satisfied!
-
+plot(mvPAR_Average_sd10m, 1:6)
 
 #Canopy Density Mean
 par(mfrow=c(2,3))
@@ -1186,29 +1277,7 @@ gvlma(Canopy_Density_mean_10m)
 
 #Canopy Density SD
 par(mfrow=c(2,3))
-plot(Canopy_Density_sd_10m, 1:6)
-gvlma(Canopy_Density_sd_10m)
-# Call:
-# lm(formula = Canopy_Density_sd ~ DEM + tpi100m + lulc_reduced, 
-#     data = bighornData)
-# 
-# Coefficients:
-#     (Intercept)              DEM          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155
-#           9.957           -1.315           -1.751           -5.237           -5.537     -4.499  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = Canopy_Density_sd_10m) 
-# 
-#                     Value   p-value                   Decision
-# Global Stat        47.876 1.002e-09 Assumptions NOT satisfied!
-# Skewness           20.297 6.629e-06 Assumptions NOT satisfied!
-# Kurtosis            8.033 4.594e-03 Assumptions NOT satisfied!
-# Link Function       3.087 7.890e-02    Assumptions acceptable.
-# Heteroscedasticity 16.459 4.972e-05 Assumptions NOT satisfied!
+plot(mvCanopy_Density_sd_10m, 1:6)
 
 
 #Leaf Angle Mean
@@ -1290,54 +1359,13 @@ gvlma(Diversity_10m)
 
 #DBH Mean
 par(mfrow=c(2,3))
-plot(DBH_mean_10m, 1:6)
-gvlma(DBH_mean_10m)
+plot(mvDBH_mean_10m, 1:6)
 
-# Call:
-# lm(formula = Average_DBH ~ tpi100m + lulc_reduced, data = bighornData)
-# 
-# Coefficients:
-#     (Intercept)          tpi100m  lulc_reduced149  lulc_reduced151  lulc_reduced155  
-#          31.139           -2.986           -6.592            3.400           -6.044  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = DBH_mean_10m) 
-# 
-#                     Value   p-value                   Decision
-# Global Stat        22.860 0.0001351 Assumptions NOT satisfied!
-# Skewness           10.835 0.0009959 Assumptions NOT satisfied!
-# Kurtosis            8.499 0.0035529 Assumptions NOT satisfied!
-# Link Function       1.769 0.1835180    Assumptions acceptable.
-# Heteroscedasticity  1.757 0.1850515    Assumptions acceptable.
 
 #DBH SD
 par(mfrow=c(2,3))
-plot(DBH_sd_10m, 1:6)
-gvlma(DBH_sd_10m)
-# Call:
-# lm(formula = DBH_Sd ~ tpi1000m + lulc_reduced, data = bighornData)
-# 
-# Coefficients:
-#     (Intercept)         tpi1000m  lulc_reduced149  lulc_reduced151  lulc_reduced155  
-#          7.3101          -1.2644           0.5346           7.8764          -0.8562  
-# 
-# ASSESSMENT OF THE LINEAR MODEL ASSUMPTIONS
-# USING THE GLOBAL TEST ON 4 DEGREES-OF-FREEDOM:
-# Level of Significance =  0.05 
-# 
-# Call:
-#  gvlma(x = DBH_sd_10m) 
-# 
-#                      Value   p-value                   Decision
-# Global Stat        23.8961 0.0000838 Assumptions NOT satisfied!
-# Skewness            8.9941 0.0027085 Assumptions NOT satisfied!
-# Kurtosis           10.2727 0.0013502 Assumptions NOT satisfied!
-# Link Function       3.9400 0.0471502 Assumptions NOT satisfied!
-# Heteroscedasticity  0.6893 0.4064005    Assumptions acceptable.
+plot(mvDBH_sd_10m, 1:6)
+
 
 #Stand Density
 par(mfrow=c(2,3))
@@ -1514,9 +1542,9 @@ GFsd.DEM<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 GFsd.DEM
 
-Gap_Fraction_sd_Car<-car::avPlots(model = GapFraction_sd_10m, 
-             col=carPalette()[1],
-             col.lines=carPalette()[1], 
+Gap_Fraction_sd_Car<-car::avPlots(model = MVGapFraction_sd_10m, 
+             col=carPalette()[3],
+             col.lines=carPalette()[5], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1555,9 +1583,9 @@ PARLAI.LULC<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 PARLAI.LULC
 
-PAR_LAI_CAR<-car::avPlots(model = PAR_LAI_mean_10m, 
-             col=carPalette()[1],
-             col.lines=carPalette()[1], 
+PAR_LAI_CAR<-car::avPlots(model = mvPAR_LAI_mean_10m, 
+             col=carPalette()[7],
+             col.lines=carPalette()[2], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=TRUE,
@@ -1637,7 +1665,7 @@ PARAvg.sd.NS<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 PARAvg.sd.NS
 
-PARAvg_Car<-car::avPlots(model = PAR_Average_sd10m, 
+PARAvg_Car<-car::avPlots(model = mvPAR_Average_sd10m, 
              col=carPalette()[3],
              col.lines=carPalette()[5], 
              grid=TRUE,
@@ -1705,7 +1733,7 @@ CDs.LULC<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 CDs.LULC
 
-CDs_CAR<-car::avPlots(model = Canopy_Density_sd_10m, 
+CDs_CAR<-car::avPlots(model = mvCanopy_Density_sd_10m, 
              col=carPalette()[3],
              col.lines=carPalette()[5], 
              grid=TRUE,
@@ -1826,7 +1854,7 @@ DBH_Avg.LULC<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 DBH_Avg.LULC
 
-DBH_Avg_CAR<-car::avPlots(model = DBH_mean_10m, 
+DBH_Avg_CAR<-car::avPlots(model = mvDBH_mean_10m, 
              col=carPalette()[3],
              col.lines=carPalette()[5], 
              grid=TRUE,
@@ -1853,13 +1881,18 @@ dbh.sd.LULC<-ggplot(bighornDataNS)+
   theme(plot.title = element_text(hjust = 0.5))
 dbh.sd.LULC
 
-dbh.sd.CAR<-car::avPlots(model = DBH_sd_10m, 
+
+lmDBH_sd_10m<-glm(DBH_Sd~ tpi1000m+ lulc_reduced, 
+                family=gaussian(),
+                data=bighornData) 
+
+dbh.sd.CAR<-car::avPlots(model = lmDBH_sd_10m,
              col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col.lines=carPalette()[5],
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
-             main=("DBH sd Added-Variable Plots")) 
+             main=("DBH sd Added-Variable Plots"))
 
 ```
 

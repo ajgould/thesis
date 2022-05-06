@@ -791,7 +791,7 @@ lm_Canopy_Density_mean_10m_exhaustive <-regsubsets(Canopy_Density_mean~ DEM+ TRI
 
 lm_Canopy_Density_mean_10m<-lm_Canopy_Density_mean_10m_exhaustive %>% 
   broom::tidy() 
-view(lm_Canopy_Density_mean_10m)
+view(lm_Canopy_Density_mean_10m) 
 
 ####Canopy Density SD####
 lm_Canopy_Density_sd_10m_exhaustive <-regsubsets(Canopy_Density_sd~ DEM+ TRI+ slope+ aspect+ eastwest+ northsouth+ tpi10m+ tpi100m+ tpi1000m+lulc_reduced,data=bighornData,intercept=TRUE,method="exhaustive", nvmax =10, nbest =  3)

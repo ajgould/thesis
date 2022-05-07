@@ -2,8 +2,10 @@
 title: "Quantifying the Effects of Topography on Forest Structure in a Temperate Coniferous Montane Forest"
 author: "Alex Gould"
 output:
-  html_document:
+  html_document: 
     theme: yeti
+    css: styles.css
+    df_print: tibble
 editor_options: 
   chunk_output_type: console
 ---
@@ -19,7 +21,7 @@ H6. Forest structure will be positively correlated with land cover and forest ty
 
 
 # Site Description
-The location chosen for this project is Bighorn National Forest in Wyoming, United States. Bighorn National Forest is approximately 128 meters long and 48 meters wide, encompassing over 404685 hectares of land (USDA Forest Service 2021). The elevation of Bighorn National Forest ranges from 1524 meters, to its highest elevation of 4013 meters at Cloud Peak (USDA Forest Service 2021). Approximately 66% of the land cover within Bighorn National Forest is forested and made up of [AG1] Douglas-fir, ponderosa pine, lodgepole pine, and spruce (Witt 2008). The sites chosen for this study are located within the National Elevation Dataset N35 W108, as shown with the black outline in Figure X, which is approximately 4828 square kilometers.
+The location chosen for this project is Bighorn National Forest in Wyoming, United States. Bighorn National Forest is approximately 128 meters long and 48 meters wide, encompassing over 404685 hectares of land (USDA Forest Service 2021). The elevation of Bighorn National Forest ranges from 1524 meters, to its highest elevation of 4013 meters at Cloud Peak (USDA Forest Service 2021). Approximately 66% of the land cover within Bighorn National Forest is forested and made up of Douglas-fir, ponderosa pine, lodgepole pine, and spruce (Witt 2008). The sites chosen for this study are located within the National Elevation Dataset N35 W108, as shown with the black outline in Figure X, which is approximately 4828 square kilometers.
 ![Bighorn National Forest](Maps/StudySite.png)
 
 # Site Selection 
@@ -1157,7 +1159,7 @@ densityPlot(Average_Stand_Age10m$residuals)
 
 ```
 
-
+![Regression Results](Maps/regression results.png)
 
 # Regression Results
 ```{r Regression Results}

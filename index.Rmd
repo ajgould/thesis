@@ -3,8 +3,9 @@ title: "Quantifying the Effects of Topography on Forest Structure in a Temperate
 author: "Alex Gould"
 output:
   html_document: 
+    toc: true
+    toc_float: true
     theme: yeti
-    css: styles.css
     df_print: tibble
 editor_options: 
   chunk_output_type: console

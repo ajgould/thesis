@@ -448,6 +448,10 @@ view(chmmin)
 plot(chmcrop, col = height.colors(25))
 hist(chmcrop)
 
+hist(TreeHeightsandAge$Max_Tree_Height)
+hist(TreeHeightsandAge$Mean_Tree_Height)
+
+
 ```
 
 ## Calculate the Diversity

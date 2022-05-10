@@ -376,6 +376,11 @@ histtpi1000m<-hist(tpi1000m[])
 
 ```
 
+```{r Lanform Classifications of Plots}
+
+PlotLandformClassification <-read.csv("proj_data/TPI Counts.csv")
+
+```
 
 ## Lidar Images of Plots 
 ```{r Lidar}

@@ -103,7 +103,7 @@ bighorn <- dplyr::filter(nf,FORESTNAME=="Bighorn National Forest")
 # Load DEM Data
 ```{r DEM_Data}
 
-DEM <- raster("proj_data/DEM.tif") 
+DEM <-raster("proj_data/DEM.tif") 
 
 ```
 
@@ -1169,7 +1169,7 @@ densityPlot(Average_Stand_Age10m$residuals)
 
 ```
 
-![Regression Results](Maps/regression results.png)
+![Regression Results](Maps/Regression Results.png)
 
 # Regression Results
 ```{r Regression Results}
@@ -2080,5 +2080,12 @@ avg.sa.CAR<-car::avPlots(model = Average_Stand_Age10m,
 
 ```
 
-
+```{r density, dbh and dem}
+ggplot(bighornDataNS)+
+    geom_point(mapping=aes(x=DEM, y=Average_DBH, color=Stand_Density)) +
+    scale_color_viridis_c(option="magma")+
+    labs(x = "Elevation", y ="Average_DBH",
+         title ="Elevation, DBH and Density", color ="Stand Density") +
+    theme(plot.title = element_text(hjust = 0.5))
+```
 

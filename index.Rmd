@@ -391,7 +391,7 @@ plotsf<- plots %>%
   st_set_crs(.,value=4326) 
 
 # Obtain Plot Coordinates in Lidar Projection
-lasfile="proj_data/LAS/plot_52_USGS_LPC_WY_Sheridan_2020_D20_13TCK1344.laz"
+lasfile="proj_data/LAS/plot_68_USGS_LPC_WY_Sheridan_2020_D20_13TCK0067.laz"
 
 lproj=readLASheader(lasfile) %>% 
   crs()
@@ -403,7 +403,7 @@ plot_polys <- plotsf %>%
   st_transform(.,crs=st_crs(4326)) 
 
 # Plot Specific Change 
-plotgeo <-plot_polys[52,] %>% 
+plotgeo <-plot_polys[68,] %>% 
   st_transform(.,crs=lproj) 
 
 
@@ -450,6 +450,9 @@ chmmin <- cellStats(chmcrop, stat=min)
 view(chmmin)
 
 #Plot and Hist
+plot(chmmax, col = height.colors(25))
+hist(chmcrop)
+
 plot(chmcrop, col = height.colors(25))
 hist(chmcrop)
 
@@ -470,7 +473,8 @@ This bar graph shows the diversity within each plot. Plot 2 high the highest div
 spatial_div<-ggplot(data= diversity, mapping=aes(x=Plot_Number, y=div, fill=div))+
   geom_bar(stat = "identity")+
   scale_fill_viridis_c(option="turbo")+
-  labs(x = "Plot Number", y = "Diversity", title ="Species Diversity Across Plots")
+  labs(x = "Plot Number", y = "Diversity", fill= "Shannon Diveristy Index", title ="Species Diversity Across Plots")
+ 
 spatial_div
 
 ```
@@ -1537,8 +1541,8 @@ GF.LULC<-ggplot(bighornDataNS)+
 GF.LULC
 
 Gap_Fraction_mean_Car<-car::avPlots(model = GapFraction_mean_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=TRUE,
@@ -1555,8 +1559,8 @@ GFsd.DEM<-ggplot(bighornDataNS)+
 GFsd.DEM
 
 Gap_Fraction_sd_Car<-car::avPlots(model = MVGapFraction_sd_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1596,8 +1600,8 @@ PARLAI.LULC<-ggplot(bighornDataNS)+
 PARLAI.LULC
 
 PAR_LAI_CAR<-car::avPlots(model = mvPAR_LAI_mean_10m, 
-             col=carPalette()[7],
-             col.lines=carPalette()[2], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=TRUE,
@@ -1617,8 +1621,8 @@ PARLAIsd.EW<-ggplot(bighornDataNS)+
 PARLAIsd.EW
 
 PAR_LAI.sd_CAR<-car::avPlots(model = PAR_LAI_sd_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1636,15 +1640,15 @@ PAR_LAI.sd_CAR<-car::avPlots(model = PAR_LAI_sd_10m,
 
 PARAvg.LULC<-ggplot(bighornDataNS)+
   geom_point(mapping=aes(x=lulc_reduced, y=PAR_Average_mean, color=PAR_Average_mean)) +
-  scale_color_viridis_c(option="magma")+
+  scale_color_viridis_c(option="turbo")+
   labs(x = "Landcover Type", y ="PAR Average Mean",
        title ="PAR Average Mean vs Landcover Type", color ="PAR Average Mean") + 
   theme(plot.title = element_text(hjust = 0.5))
 PARAvg.LULC
 
 PAR_Avg_CAR<-car::avPlots(model = PAR_Average_mean_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1678,8 +1682,8 @@ PARAvg.sd.NS<-ggplot(bighornDataNS)+
 PARAvg.sd.NS
 
 PARAvg_Car<-car::avPlots(model = mvPAR_Average_sd10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1710,8 +1714,8 @@ CD.LULC<-ggplot(bighornDataNS)+
 CD.LULC
 
 CD_CAR<-car::avPlots(model = Canopy_Density_mean_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1746,8 +1750,8 @@ CDs.LULC<-ggplot(bighornDataNS)+
 CDs.LULC
 
 CDs_CAR<-car::avPlots(model = mvCanopy_Density_sd_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1763,7 +1767,7 @@ CDs_CAR<-car::avPlots(model = mvCanopy_Density_sd_10m,
 
 LA.LULC<-ggplot(bighornDataNS)+
   geom_point(mapping=aes(x=lulc_reduced, y=Leaf_Angle_mean, color=Leaf_Angle_mean)) +
-  scale_color_viridis_c(option="plasma")+
+  scale_color_viridis_c(option="turbo")+
   labs(x = "Landcover Types", y ="Leaf Angle Mean",
        title ="Leaf Angle Mean vs Landcover Types", color ="Leaf Angle Sd") + 
   theme(plot.title = element_text(hjust = 0.5))
@@ -1798,8 +1802,8 @@ LAs.LULC<-ggplot(bighornDataNS)+
 LAs.LULC
 
 LA.sd_CAR<-car::avPlots(model = Leaf_Angle_sd_10, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1837,8 +1841,8 @@ div.lulc<-ggplot(bighornDataNS)+
 div.lulc
 
 div_Car<-car::avPlots(model = Diversity_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1867,8 +1871,8 @@ DBH_Avg.LULC<-ggplot(bighornDataNS)+
 DBH_Avg.LULC
 
 DBH_Avg_CAR<-car::avPlots(model = mvDBH_mean_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1899,8 +1903,8 @@ lmDBH_sd_10m<-glm(DBH_Sd~ tpi1000m+ lulc_reduced,
                 data=bighornData) 
 
 dbh.sd.CAR<-car::avPlots(model = lmDBH_sd_10m,
-             col=carPalette()[3],
-             col.lines=carPalette()[5],
+             col=carPalette()[1],
+             col.lines=carPalette()[1],
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1939,8 +1943,8 @@ den.lulc<-ggplot(bighornDataNS)+
 den.lulc
 
 den.car<-car::avPlots(model = Stand_Density_10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -1971,8 +1975,8 @@ avgTH.LULC<-ggplot(NSbighornDataTreeHeightsAndAge)+
 avgTH.LULC
 
 avgTH.CAR<-car::avPlots(model = Mean_Tree_Height10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -2000,8 +2004,8 @@ sd.th.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
 sd.th.lulc
 
 sd.thCAR<-car::avPlots(model = SD_Tree_Height10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -2035,8 +2039,8 @@ max.th.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
 max.th.lulc
 
 max.th.CAR<-car::avPlots(model = Max_Tree_Height10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
@@ -2071,8 +2075,8 @@ avg.sa.lulc<-ggplot(NSbighornDataTreeHeightsAndAge)+
 avg.sa.lulc
 
 avg.sa.CAR<-car::avPlots(model = Average_Stand_Age10m, 
-             col=carPalette()[3],
-             col.lines=carPalette()[5], 
+             col=carPalette()[1],
+             col.lines=carPalette()[1], 
              grid=TRUE,
              ellipse=FALSE,
              marginal.scale=FALSE,
